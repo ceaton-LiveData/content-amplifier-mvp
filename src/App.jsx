@@ -1,17 +1,73 @@
-import React from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider } from './ui/hooks/useAuth'
+import AuthGuard from './ui/components/AuthGuard'
+import Login from './ui/pages/Login'
+import Signup from './ui/pages/Signup'
+import Dashboard from './ui/pages/Dashboard'
+import Onboarding from './ui/pages/Onboarding'
+import UploadTranscript from './ui/pages/UploadTranscript'
+import GenerateContent from './ui/pages/GenerateContent'
+import ContentLibrary from './ui/pages/ContentLibrary'
 
 function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Content Amplifier
-        </h1>
-        <p className="text-gray-600">
-          Ready to build. Claude Code will implement from here.
-        </p>
-      </div>
-    </div>
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          {/* Public routes */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+
+          {/* Protected routes */}
+          <Route
+            path="/dashboard"
+            element={
+              <AuthGuard>
+                <Dashboard />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/onboarding"
+            element={
+              <AuthGuard>
+                <Onboarding />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/upload"
+            element={
+              <AuthGuard>
+                <UploadTranscript />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/generate/:sourceId"
+            element={
+              <AuthGuard>
+                <GenerateContent />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/content/:sourceId"
+            element={
+              <AuthGuard>
+                <ContentLibrary />
+              </AuthGuard>
+            }
+          />
+
+          {/* Redirect root to dashboard */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+          {/* Catch all - redirect to dashboard */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   )
 }
 

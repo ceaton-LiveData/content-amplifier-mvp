@@ -16,7 +16,7 @@ CREATE TABLE accounts (
   
   -- Brand voice configuration
   brand_voice_profile TEXT,
-  brand_voice_source_type TEXT CHECK (brand_voice_source_type IN ('document', 'examples', 'manual')),
+  brand_voice_source_type TEXT CHECK (brand_voice_source_type IN ('styleguide', 'examples', 'both', 'manual')),
   brand_voice_source_file TEXT, -- Supabase storage URL if uploaded document
   target_audience TEXT,
   words_to_avoid TEXT,
