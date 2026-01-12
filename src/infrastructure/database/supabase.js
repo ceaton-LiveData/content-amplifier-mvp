@@ -238,3 +238,138 @@ export async function canProcessTranscript(accountId) {
   const limit = limits[account.plan_tier] || 10
   return usage < limit
 }
+
+// Get distinct content types already generated for a source
+export async function getExistingContentTypes(sourceId) {
+  const { data, error } = await supabase
+    .from('generated_content')
+    .select('content_type')
+    .eq('content_source_id', sourceId)
+
+  if (error) throw error
+
+  // Return unique content types
+  const types = [...new Set(data.map(item => item.content_type))]
+  return types
+}
+
+// API Usage Logging
+export async function logApiUsage(usageData) {
+  const { data, error } = await supabase
+    .from('api_usage_logs')
+    .insert(usageData)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function getApiCostThisMonth(accountId) {
+  const startOfMonth = new Date()
+  startOfMonth.setDate(1)
+  startOfMonth.setHours(0, 0, 0, 0)
+
+  const { data, error } = await supabase
+    .from('api_usage_logs')
+    .select('estimated_cost')
+    .eq('account_id', accountId)
+    .gte('created_at', startOfMonth.toISOString())
+
+  if (error) throw error
+
+  const totalCost = data.reduce((sum, row) => sum + parseFloat(row.estimated_cost || 0), 0)
+  return totalCost
+}
+
+export async function getApiUsageStats(accountId) {
+  const startOfMonth = new Date()
+  startOfMonth.setDate(1)
+  startOfMonth.setHours(0, 0, 0, 0)
+
+  const { data, error } = await supabase
+    .from('api_usage_logs')
+    .select('input_tokens, output_tokens, estimated_cost, operation, content_type')
+    .eq('account_id', accountId)
+    .gte('created_at', startOfMonth.toISOString())
+
+  if (error) throw error
+
+  // Aggregate stats
+  const stats = {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCost: 0,
+    callCount: data.length,
+    byOperation: {},
+    byContentType: {},
+  }
+
+  for (const row of data) {
+    stats.totalInputTokens += row.input_tokens || 0
+    stats.totalOutputTokens += row.output_tokens || 0
+    stats.totalCost += parseFloat(row.estimated_cost || 0)
+
+    // Group by operation
+    if (row.operation) {
+      if (!stats.byOperation[row.operation]) {
+        stats.byOperation[row.operation] = { calls: 0, cost: 0 }
+      }
+      stats.byOperation[row.operation].calls++
+      stats.byOperation[row.operation].cost += parseFloat(row.estimated_cost || 0)
+    }
+
+    // Group by content type
+    if (row.content_type) {
+      if (!stats.byContentType[row.content_type]) {
+        stats.byContentType[row.content_type] = { calls: 0, cost: 0 }
+      }
+      stats.byContentType[row.content_type].calls++
+      stats.byContentType[row.content_type].cost += parseFloat(row.estimated_cost || 0)
+    }
+  }
+
+  return stats
+}
+
+// Admin functions (requires admin check in UI)
+export async function adminGetApiStats() {
+  const { data, error } = await supabase.rpc('admin_get_api_stats')
+  if (error) throw error
+  return data?.[0] || null
+}
+
+export async function adminGetDailyCosts(daysBack = 30) {
+  const { data, error } = await supabase.rpc('admin_get_daily_costs', { days_back: daysBack })
+  if (error) throw error
+  return data || []
+}
+
+export async function adminGetUserStats() {
+  const { data, error } = await supabase.rpc('admin_get_user_stats')
+  if (error) throw error
+  return data?.[0] || null
+}
+
+export async function adminGetTopUsersByCost(limit = 10) {
+  const { data, error } = await supabase.rpc('admin_get_top_users_by_cost', { limit_count: limit })
+  if (error) throw error
+  return data || []
+}
+
+export async function adminGetRecentErrors(limit = 50) {
+  const { data, error } = await supabase.rpc('admin_get_recent_errors', { limit_count: limit })
+  if (error) throw error
+  return data || []
+}
+
+export async function adminGetRecentApiUsage(limit = 100) {
+  const { data, error } = await supabase
+    .from('api_usage_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) throw error
+  return data || []
+}

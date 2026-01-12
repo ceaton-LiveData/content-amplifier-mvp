@@ -44,11 +44,11 @@ CREATE TABLE content_sources (
   account_id UUID REFERENCES accounts(id) ON DELETE CASCADE NOT NULL,
   
   -- Source information
-  source_type TEXT DEFAULT 'transcript' CHECK (source_type IN ('transcript', 'video', 'audio')),
+  source_type TEXT DEFAULT 'transcript' CHECK (source_type IN ('transcript', 'article', 'topic', 'notes', 'other')),
   original_filename TEXT NOT NULL,
   file_url TEXT, -- Supabase storage URL (temporary, deleted after text extraction)
-  
-  -- Extracted content
+
+  -- Extracted content (named transcript_text for backwards compatibility, but stores any source text)
   transcript_text TEXT NOT NULL,
   
   -- Metadata
@@ -397,6 +397,211 @@ CREATE INDEX idx_content_account_type
 CREATE INDEX idx_transcript_text_search 
   ON content_sources 
   USING gin(to_tsvector('english', transcript_text));
+
+-- ============================================================================
+-- API USAGE LOGS TABLE
+-- Tracks every Claude API call for cost monitoring
+-- ============================================================================
+
+CREATE TABLE api_usage_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  account_id UUID REFERENCES accounts(id) ON DELETE CASCADE NOT NULL,
+  generation_id UUID REFERENCES content_generations(id) ON DELETE SET NULL,
+
+  -- API call details
+  model TEXT NOT NULL,
+  operation TEXT NOT NULL, -- 'content_generation', 'brand_voice_analysis', etc.
+  content_type TEXT, -- 'linkedin_post', 'blog_post', etc. (if applicable)
+
+  -- Token usage
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_creation_input_tokens INTEGER DEFAULT 0,
+  cache_read_input_tokens INTEGER DEFAULT 0,
+
+  -- Cost calculation (in USD)
+  estimated_cost NUMERIC(10, 6) NOT NULL DEFAULT 0,
+
+  -- Request metadata
+  request_time_ms INTEGER,
+  status TEXT DEFAULT 'success' CHECK (status IN ('success', 'error')),
+  error_message TEXT,
+
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_api_usage_account_id ON api_usage_logs(account_id);
+CREATE INDEX idx_api_usage_created_at ON api_usage_logs(created_at DESC);
+CREATE INDEX idx_api_usage_generation_id ON api_usage_logs(generation_id);
+
+-- RLS for api_usage_logs
+ALTER TABLE api_usage_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own api usage" ON api_usage_logs
+  FOR SELECT USING (
+    account_id IN (SELECT id FROM accounts WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Users can insert own api usage" ON api_usage_logs
+  FOR INSERT WITH CHECK (
+    account_id IN (SELECT id FROM accounts WHERE user_id = auth.uid())
+  );
+
+-- Function to get total API cost this month for an account
+CREATE OR REPLACE FUNCTION get_api_cost_this_month(p_account_id UUID)
+RETURNS NUMERIC AS $$
+DECLARE
+  total_cost NUMERIC;
+BEGIN
+  SELECT COALESCE(SUM(estimated_cost), 0)
+  INTO total_cost
+  FROM api_usage_logs
+  WHERE account_id = p_account_id
+    AND created_at >= DATE_TRUNC('month', NOW());
+
+  RETURN total_cost;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get total tokens used this month for an account
+CREATE OR REPLACE FUNCTION get_tokens_this_month(p_account_id UUID)
+RETURNS TABLE(input_tokens BIGINT, output_tokens BIGINT) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    COALESCE(SUM(l.input_tokens), 0)::BIGINT as input_tokens,
+    COALESCE(SUM(l.output_tokens), 0)::BIGINT as output_tokens
+  FROM api_usage_logs l
+  WHERE l.account_id = p_account_id
+    AND l.created_at >= DATE_TRUNC('month', NOW());
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================================
+-- ADMIN FUNCTIONS
+-- For system-wide monitoring (requires admin role check in app)
+-- ============================================================================
+
+-- Get all API usage stats (for admin dashboard)
+CREATE OR REPLACE FUNCTION admin_get_api_stats()
+RETURNS TABLE(
+  total_cost NUMERIC,
+  total_input_tokens BIGINT,
+  total_output_tokens BIGINT,
+  total_calls BIGINT,
+  cost_today NUMERIC,
+  cost_this_week NUMERIC,
+  cost_this_month NUMERIC
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    COALESCE(SUM(estimated_cost), 0) as total_cost,
+    COALESCE(SUM(input_tokens), 0)::BIGINT as total_input_tokens,
+    COALESCE(SUM(output_tokens), 0)::BIGINT as total_output_tokens,
+    COUNT(*)::BIGINT as total_calls,
+    COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN estimated_cost ELSE 0 END), 0) as cost_today,
+    COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '7 days' THEN estimated_cost ELSE 0 END), 0) as cost_this_week,
+    COALESCE(SUM(CASE WHEN created_at >= DATE_TRUNC('month', CURRENT_DATE) THEN estimated_cost ELSE 0 END), 0) as cost_this_month
+  FROM api_usage_logs;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Get daily cost breakdown (for charts)
+CREATE OR REPLACE FUNCTION admin_get_daily_costs(days_back INTEGER DEFAULT 30)
+RETURNS TABLE(
+  day DATE,
+  cost NUMERIC,
+  calls BIGINT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    DATE(created_at) as day,
+    COALESCE(SUM(estimated_cost), 0) as cost,
+    COUNT(*)::BIGINT as calls
+  FROM api_usage_logs
+  WHERE created_at >= CURRENT_DATE - (days_back || ' days')::INTERVAL
+  GROUP BY DATE(created_at)
+  ORDER BY day DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Get user stats (for admin)
+CREATE OR REPLACE FUNCTION admin_get_user_stats()
+RETURNS TABLE(
+  total_users BIGINT,
+  users_with_brand_voice BIGINT,
+  total_transcripts BIGINT,
+  total_generations BIGINT,
+  total_content_pieces BIGINT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    (SELECT COUNT(*) FROM accounts)::BIGINT as total_users,
+    (SELECT COUNT(*) FROM accounts WHERE brand_voice_profile IS NOT NULL)::BIGINT as users_with_brand_voice,
+    (SELECT COUNT(*) FROM content_sources)::BIGINT as total_transcripts,
+    (SELECT COUNT(*) FROM content_generations WHERE status = 'complete')::BIGINT as total_generations,
+    (SELECT COUNT(*) FROM generated_content)::BIGINT as total_content_pieces;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Get top users by cost (for admin)
+CREATE OR REPLACE FUNCTION admin_get_top_users_by_cost(limit_count INTEGER DEFAULT 10)
+RETURNS TABLE(
+  account_id UUID,
+  user_email TEXT,
+  total_cost NUMERIC,
+  total_calls BIGINT,
+  plan_tier TEXT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    a.id as account_id,
+    u.email as user_email,
+    COALESCE(SUM(l.estimated_cost), 0) as total_cost,
+    COUNT(l.id)::BIGINT as total_calls,
+    a.plan_tier
+  FROM accounts a
+  LEFT JOIN api_usage_logs l ON l.account_id = a.id
+  LEFT JOIN auth.users u ON u.id = a.user_id
+  GROUP BY a.id, u.email, a.plan_tier
+  ORDER BY total_cost DESC
+  LIMIT limit_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Get recent errors (for admin)
+CREATE OR REPLACE FUNCTION admin_get_recent_errors(limit_count INTEGER DEFAULT 50)
+RETURNS TABLE(
+  id UUID,
+  account_id UUID,
+  user_email TEXT,
+  operation TEXT,
+  error_message TEXT,
+  created_at TIMESTAMPTZ
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    l.id,
+    l.account_id,
+    u.email as user_email,
+    l.operation,
+    l.error_message,
+    l.created_at
+  FROM api_usage_logs l
+  LEFT JOIN accounts a ON a.id = l.account_id
+  LEFT JOIN auth.users u ON u.id = a.user_id
+  WHERE l.status = 'error'
+  ORDER BY l.created_at DESC
+  LIMIT limit_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================================
 -- COMMENTS FOR DOCUMENTATION

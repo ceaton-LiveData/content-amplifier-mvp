@@ -8,6 +8,7 @@ import Onboarding from './ui/pages/Onboarding'
 import UploadTranscript from './ui/pages/UploadTranscript'
 import GenerateContent from './ui/pages/GenerateContent'
 import ContentLibrary from './ui/pages/ContentLibrary'
+import AdminDashboard from './ui/pages/AdminDashboard'
 
 function App() {
   return (
@@ -56,6 +57,14 @@ function App() {
             element={
               <AuthGuard>
                 <ContentLibrary />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <AuthGuard>
+                <AdminDashboard />
               </AuthGuard>
             }
           />

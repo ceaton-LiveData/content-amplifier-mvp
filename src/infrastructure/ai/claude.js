@@ -7,11 +7,45 @@
 
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY
 
+// Claude Sonnet 4 pricing (per million tokens) - as of Jan 2025
+const PRICING = {
+  'claude-sonnet-4-20250514': {
+    input: 3.00,      // $3 per million input tokens
+    output: 15.00,    // $15 per million output tokens
+    cacheWrite: 3.75, // $3.75 per million tokens for cache writes
+    cacheRead: 0.30,  // $0.30 per million tokens for cache hits
+  },
+  // Add other models as needed
+  default: {
+    input: 3.00,
+    output: 15.00,
+    cacheWrite: 3.75,
+    cacheRead: 0.30,
+  }
+}
+
+/**
+ * Calculate estimated cost from usage data
+ * @param {object} usage - Usage object from Claude API response
+ * @param {string} model - Model name
+ * @returns {number} - Estimated cost in USD
+ */
+function calculateCost(usage, model) {
+  const pricing = PRICING[model] || PRICING.default
+
+  const inputCost = (usage.input_tokens || 0) * pricing.input / 1_000_000
+  const outputCost = (usage.output_tokens || 0) * pricing.output / 1_000_000
+  const cacheWriteCost = (usage.cache_creation_input_tokens || 0) * pricing.cacheWrite / 1_000_000
+  const cacheReadCost = (usage.cache_read_input_tokens || 0) * pricing.cacheRead / 1_000_000
+
+  return inputCost + outputCost + cacheWriteCost + cacheReadCost
+}
+
 /**
  * Generate content using Claude API
  * @param {string} prompt - The user prompt
  * @param {object} options - Generation options
- * @returns {Promise<string>} - Generated text
+ * @returns {Promise<{text: string, usage: object}>} - Generated text and usage data
  */
 export async function generate(prompt, options = {}) {
   const {
@@ -20,6 +54,8 @@ export async function generate(prompt, options = {}) {
     systemPrompt = '',
     temperature = 1,
   } = options
+
+  const startTime = Date.now()
 
   const messages = [
     { role: 'user', content: prompt }
@@ -50,13 +86,30 @@ export async function generate(prompt, options = {}) {
     body: JSON.stringify(body),
   })
 
+  const requestTimeMs = Date.now() - startTime
+
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.error?.message || 'Failed to generate content')
   }
 
   const data = await response.json()
-  return data.content[0].text
+
+  // Extract usage data
+  const usage = {
+    model,
+    input_tokens: data.usage?.input_tokens || 0,
+    output_tokens: data.usage?.output_tokens || 0,
+    cache_creation_input_tokens: data.usage?.cache_creation_input_tokens || 0,
+    cache_read_input_tokens: data.usage?.cache_read_input_tokens || 0,
+    request_time_ms: requestTimeMs,
+    estimated_cost: calculateCost(data.usage || {}, model),
+  }
+
+  return {
+    text: data.content[0].text,
+    usage,
+  }
 }
 
 /**
@@ -64,7 +117,7 @@ export async function generate(prompt, options = {}) {
  * @param {string} prompt - The user prompt
  * @param {string} cachedSystemPrompt - System prompt to cache (brand voice)
  * @param {object} options - Generation options
- * @returns {Promise<string>} - Generated text
+ * @returns {Promise<{text: string, usage: object}>} - Generated text and usage data
  */
 export async function generateWithCache(prompt, cachedSystemPrompt, options = {}) {
   const {
@@ -72,6 +125,8 @@ export async function generateWithCache(prompt, cachedSystemPrompt, options = {}
     maxTokens = 2000,
     temperature = 1,
   } = options
+
+  const startTime = Date.now()
 
   const body = {
     model,
@@ -103,13 +158,30 @@ export async function generateWithCache(prompt, cachedSystemPrompt, options = {}
     body: JSON.stringify(body),
   })
 
+  const requestTimeMs = Date.now() - startTime
+
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.error?.message || 'Failed to generate content')
   }
 
   const data = await response.json()
-  return data.content[0].text
+
+  // Extract usage data (including cache metrics)
+  const usage = {
+    model,
+    input_tokens: data.usage?.input_tokens || 0,
+    output_tokens: data.usage?.output_tokens || 0,
+    cache_creation_input_tokens: data.usage?.cache_creation_input_tokens || 0,
+    cache_read_input_tokens: data.usage?.cache_read_input_tokens || 0,
+    request_time_ms: requestTimeMs,
+    estimated_cost: calculateCost(data.usage || {}, model),
+  }
+
+  return {
+    text: data.content[0].text,
+    usage,
+  }
 }
 
 /**
@@ -117,7 +189,7 @@ export async function generateWithCache(prompt, cachedSystemPrompt, options = {}
  * @param {string[]} examples - Content examples
  * @param {string} targetAudience - Who they're writing for
  * @param {string} wordsToAvoid - Words/phrases to avoid
- * @returns {Promise<string>} - Brand voice profile
+ * @returns {Promise<{text: string, usage: object}>} - Brand voice profile and usage data
  */
 export async function analyzeBrandVoice(examples, targetAudience = '', wordsToAvoid = '') {
   const examplesText = examples.map((ex, i) => `Example ${i + 1}:\n${ex}`).join('\n\n---\n\n')
@@ -152,7 +224,7 @@ Write the profile in second person ("You write in a...") so it can be used as in
  * @param {string} styleGuideText - The style guide document text
  * @param {string} targetAudience - Who they're writing for
  * @param {string} wordsToAvoid - Words/phrases to avoid
- * @returns {Promise<string>} - Brand voice profile based on rules
+ * @returns {Promise<{text: string, usage: object}>} - Brand voice profile and usage data
  */
 export async function analyzeStyleGuide(styleGuideText, targetAudience = '', wordsToAvoid = '') {
   const prompt = `Analyze the following brand style guide and extract the key rules and guidelines into a usable brand voice profile. This is a STYLE GUIDE containing RULES about how to write, not examples of actual writing.
@@ -188,7 +260,7 @@ Write the profile in second person ("You should...", "Always...", "Never...") so
  * @param {string[]} examples - Content examples
  * @param {string} targetAudience - Who they're writing for
  * @param {string} wordsToAvoid - Words/phrases to avoid
- * @returns {Promise<string>} - Comprehensive brand voice profile
+ * @returns {Promise<{text: string, usage: object}>} - Comprehensive brand voice profile and usage data
  */
 export async function analyzeBrandVoiceWithGuide(styleGuideText, examples, targetAudience = '', wordsToAvoid = '') {
   const examplesText = examples.map((ex, i) => `Example ${i + 1}:\n${ex}`).join('\n\n---\n\n')

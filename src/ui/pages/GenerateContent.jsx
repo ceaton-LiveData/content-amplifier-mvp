@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import { getContentSource, createGeneration, updateGeneration, saveGeneratedContent } from '../../infrastructure/database/supabase'
+import { getContentSource, createGeneration, updateGeneration, saveGeneratedContent, getExistingContentTypes, logApiUsage } from '../../infrastructure/database/supabase'
 import { generateWithCache } from '../../infrastructure/ai/claude'
 
 const CONTENT_TYPES = [
@@ -30,9 +30,8 @@ export default function GenerateContent() {
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState(null)
 
-  const [selectedTypes, setSelectedTypes] = useState(
-    CONTENT_TYPES.filter(t => t.defaultChecked).map(t => t.id)
-  )
+  const [selectedTypes, setSelectedTypes] = useState([])
+  const [existingTypes, setExistingTypes] = useState([])
   const [selectedTone, setSelectedTone] = useState(null)
   const [progress, setProgress] = useState({ current: 0, total: 0, currentType: '' })
 
@@ -42,8 +41,18 @@ export default function GenerateContent() {
 
   async function loadSource() {
     try {
-      const data = await getContentSource(sourceId)
-      setSource(data)
+      const [sourceData, existingContentTypes] = await Promise.all([
+        getContentSource(sourceId),
+        getExistingContentTypes(sourceId)
+      ])
+      setSource(sourceData)
+      setExistingTypes(existingContentTypes)
+
+      // Pre-select types that haven't been generated yet
+      const notYetGenerated = CONTENT_TYPES
+        .filter(t => !existingContentTypes.includes(t.id))
+        .map(t => t.id)
+      setSelectedTypes(notYetGenerated.length > 0 ? notYetGenerated : [])
     } catch (err) {
       setError('Failed to load transcript')
     } finally {
@@ -94,15 +103,37 @@ export default function GenerateContent() {
         })
 
         try {
-          const content = await generateContentForType(
+          const { content, usage } = await generateContentForType(
             typeId,
             typeInfo.count,
             source.transcript_text,
             brandVoice,
             selectedTone,
             account.target_audience,
-            account.words_to_avoid
+            account.words_to_avoid,
+            source.source_type || 'transcript'
           )
+
+          // Log API usage
+          try {
+            await logApiUsage({
+              account_id: account.id,
+              generation_id: generation.id,
+              model: usage.model,
+              operation: 'content_generation',
+              content_type: typeId,
+              input_tokens: usage.input_tokens,
+              output_tokens: usage.output_tokens,
+              cache_creation_input_tokens: usage.cache_creation_input_tokens,
+              cache_read_input_tokens: usage.cache_read_input_tokens,
+              estimated_cost: usage.estimated_cost,
+              request_time_ms: usage.request_time_ms,
+              status: 'success',
+            })
+          } catch (logErr) {
+            console.error('Failed to log API usage:', logErr)
+            // Don't fail content generation if logging fails
+          }
 
           // Save each piece of content
           for (const piece of content) {
@@ -113,6 +144,8 @@ export default function GenerateContent() {
               content_type: typeId,
               content_text: piece.text,
               content_metadata: piece.metadata || null,
+              tokens_used: usage.input_tokens + usage.output_tokens,
+              generation_cost: usage.estimated_cost,
             })
           }
         } catch (err) {
@@ -219,30 +252,47 @@ export default function GenerateContent() {
           {/* Content Type Selection */}
           <div className="mb-6">
             <h3 className="text-sm font-medium text-gray-700 mb-3">What would you like to generate?</h3>
+            {existingTypes.length > 0 && (
+              <p className="text-sm text-gray-500 mb-3">
+                Content types marked with a checkmark have already been generated.
+              </p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {CONTENT_TYPES.map((type) => (
-                <label
-                  key={type.id}
-                  className={`
-                    flex items-center p-3 border rounded-lg cursor-pointer transition-colors
-                    ${selectedTypes.includes(type.id)
-                      ? 'border-primary-500 bg-primary-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                    }
-                  `}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedTypes.includes(type.id)}
-                    onChange={() => toggleType(type.id)}
-                    className="h-4 w-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
-                  />
-                  <span className="ml-3">
-                    <span className="text-sm font-medium text-gray-900">{type.name}</span>
-                    <span className="text-sm text-gray-500 ml-1">({type.count})</span>
-                  </span>
-                </label>
-              ))}
+              {CONTENT_TYPES.map((type) => {
+                const alreadyGenerated = existingTypes.includes(type.id)
+                return (
+                  <label
+                    key={type.id}
+                    className={`
+                      flex items-center p-3 border rounded-lg cursor-pointer transition-colors
+                      ${selectedTypes.includes(type.id)
+                        ? 'border-primary-500 bg-primary-50'
+                        : alreadyGenerated
+                        ? 'border-green-200 bg-green-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                      }
+                    `}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedTypes.includes(type.id)}
+                      onChange={() => toggleType(type.id)}
+                      className="h-4 w-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
+                    />
+                    <span className="ml-3 flex-1">
+                      <span className="text-sm font-medium text-gray-900">{type.name}</span>
+                      <span className="text-sm text-gray-500 ml-1">({type.count})</span>
+                    </span>
+                    {alreadyGenerated && (
+                      <span className="flex items-center text-green-600" title="Already generated">
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </span>
+                    )}
+                  </label>
+                )
+              })}
             </div>
           </div>
 
@@ -293,8 +343,17 @@ export default function GenerateContent() {
   )
 }
 
+// Source type labels for prompts
+const SOURCE_TYPE_LABELS = {
+  transcript: { name: 'transcript', verb: 'from', context: 'This is a transcript from a video, podcast, webinar, or interview.' },
+  article: { name: 'article', verb: 'from', context: 'This is an existing article or blog post to repurpose into other formats.' },
+  topic: { name: 'topic brief', verb: 'about', context: 'This is a topic description or outline. Expand on the ideas and create original content based on the topic.' },
+  notes: { name: 'notes', verb: 'from', context: 'These are meeting notes or research findings. Transform the raw information into polished content.' },
+  other: { name: 'content', verb: 'from', context: 'Transform this source material into the requested content format.' },
+}
+
 // Helper function to generate content for a specific type
-async function generateContentForType(typeId, count, transcript, brandVoice, toneOverride, targetAudience, wordsToAvoid) {
+async function generateContentForType(typeId, count, sourceText, brandVoice, toneOverride, targetAudience, wordsToAvoid, sourceType = 'transcript') {
   const toneInstruction = toneOverride === 'formal'
     ? 'Use a more formal, executive-level tone than usual.'
     : toneOverride === 'casual'
@@ -303,46 +362,52 @@ async function generateContentForType(typeId, count, transcript, brandVoice, ton
     ? 'Focus on technical details, data, and specific metrics.'
     : ''
 
+  const sourceInfo = SOURCE_TYPE_LABELS[sourceType] || SOURCE_TYPE_LABELS.other
+  const sourceLabel = sourceInfo.name.toUpperCase()
+
   const prompts = {
-    linkedin_post: `Generate ${count} LinkedIn posts based on the following transcript. Each post should:
+    linkedin_post: `Generate ${count} LinkedIn posts based on the following ${sourceInfo.name}. Each post should:
 - Be 150-200 words
 - Start with an attention-grabbing hook
-- Include a specific insight or data point from the transcript
+- Include a specific insight or data point ${sourceInfo.verb} the ${sourceInfo.name}
 - End with a question or call-to-action to drive engagement
 - Use short paragraphs (1-3 sentences each)
+- Write in PLAIN TEXT only - no markdown formatting (no #, **, *, or other markup)
+- Use line breaks to separate paragraphs, not headers
 
 ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
 ${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
 
-TRANSCRIPT:
-${transcript.substring(0, 8000)}
+${sourceLabel}:
+${sourceText.substring(0, 8000)}
 
-Generate exactly ${count} posts. Format each post with "---POST ${'{'}N{'}'}---" separator where N is the post number (1, 2, 3, etc).`,
+Generate exactly ${count} posts. Format each post with "---POST N---" separator where N is the post number (1, 2, 3, etc).`,
 
-    blog_post: `Write a blog post based on the following transcript. The post should:
+    blog_post: `Write a blog post based on the following ${sourceInfo.name}. The post should:
 - Be 800-1200 words
 - Have a compelling title
 - Include an introduction that hooks the reader
 - Be organized with clear sections/headers
-- Include specific examples and insights from the transcript
+- Include specific examples and insights ${sourceInfo.verb} the ${sourceInfo.name}
 - End with a conclusion and call-to-action
 
 ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
 ${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
 
-TRANSCRIPT:
-${transcript.substring(0, 12000)}
+${sourceLabel}:
+${sourceText.substring(0, 12000)}
 
 Format: Start with the title on the first line, then the content.`,
 
-    email_sequence: `Create a ${count}-email nurture sequence based on the following transcript. Each email should:
+    email_sequence: `Create a ${count}-email nurture sequence based on the following ${sourceInfo.name}. Each email should:
 - Be 100-150 words
 - Have a compelling subject line
 - Build on the previous email
-- Include one key insight from the transcript
+- Include one key insight ${sourceInfo.verb} the ${sourceInfo.name}
 - Have a clear call-to-action
+- Write in PLAIN TEXT only - no markdown formatting (no #, **, *, or other markup)
 
 The sequence should educate the reader progressively.
 
@@ -350,55 +415,75 @@ ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
 ${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
 
-TRANSCRIPT:
-${transcript.substring(0, 8000)}
+${sourceLabel}:
+${sourceText.substring(0, 8000)}
 
-Format each email with "---EMAIL ${'{'}N{'}'}---" separator, then "Subject: [subject line]" on the next line, followed by the email body.`,
+Format each email with "---EMAIL N---" separator, then "Subject: [subject line]" on the next line, followed by the email body.`,
 
-    twitter_thread: `Create a Twitter/X thread based on the following transcript. The thread should:
+    twitter_thread: `Create a Twitter/X thread based on the following ${sourceInfo.name}. The thread should:
 - Have 8-12 tweets
 - Start with a hook tweet that grabs attention
 - Each tweet should be under 280 characters
 - Include specific insights and takeaways
 - End with a summary or call-to-action
 - Use thread numbering (1/, 2/, etc.)
+- Write in PLAIN TEXT only - no markdown formatting (no #, **, *, or other markup)
 
 ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
 ${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
 
-TRANSCRIPT:
-${transcript.substring(0, 6000)}
+${sourceLabel}:
+${sourceText.substring(0, 6000)}
 
 Format each tweet on its own line, numbered.`,
 
-    executive_summary: `Write an executive summary based on the following transcript. The summary should:
+    executive_summary: `Write an executive summary based on the following ${sourceInfo.name}. The summary should:
 - Be 250-400 words
 - Start with the main thesis/key takeaway
 - Include 3-5 key points
 - Be written for busy executives
 - Focus on actionable insights and business implications
 - End with recommendations or next steps
+- Write in PLAIN TEXT only - no markdown formatting (no #, **, *, or other markup)
+- Use line breaks to separate sections, not headers
 
 ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
 ${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
 
-TRANSCRIPT:
-${transcript.substring(0, 10000)}`,
+${sourceLabel}:
+${sourceText.substring(0, 10000)}`,
   }
 
-  const systemPrompt = `You are an expert content creator. Your job is to transform transcripts into engaging, on-brand content.
+  const systemPrompt = `You are an expert content creator. Your job is to transform source content into engaging, on-brand content.
+
+SOURCE TYPE: ${sourceInfo.name}
+${sourceInfo.context}
 
 BRAND VOICE:
 ${brandVoice}
 
-Always maintain this brand voice while creating content. Be specific, use examples from the transcript, and create content that provides real value to readers.`
+IMPORTANT - PLAIN TEXT FORMAT:
+Unless creating a blog post, write all content in plain text without markdown formatting. Do not use # for headers, ** for bold, * for italics, or any other markdown syntax. The content will be copied directly to platforms like LinkedIn and email where markdown does not render.
 
-  const response = await generateWithCache(prompts[typeId], systemPrompt)
+IMPORTANT - FACT VERIFICATION:
+When the content includes statistics, study results, specific claims, or data points that would benefit from a source citation, add [VERIFY: brief description] immediately after the claim. This helps the user know what needs fact-checking or source links before publishing.
+
+Examples:
+- "Studies show 73% of hospitals..." → "Studies show 73% of hospitals... [VERIFY: hospital statistic - add source]"
+- "Research from Harvard indicates..." → "Research from Harvard indicates... [VERIFY: Harvard research citation needed]"
+- "Industry experts predict..." → "Industry experts predict... [VERIFY: which experts/source]"
+
+Only flag claims that genuinely need verification - don't flag obvious statements, opinions, or general advice. The goal is to help the user publish accurate, well-sourced content.
+
+Always maintain the brand voice while creating content. Be specific, use examples from the source content, and create content that provides real value to readers.`
+
+  const { text, usage } = await generateWithCache(prompts[typeId], systemPrompt)
 
   // Parse the response based on content type
-  return parseResponse(typeId, response, count)
+  const content = parseResponse(typeId, text, count)
+  return { content, usage }
 }
 
 function parseResponse(typeId, response, expectedCount) {

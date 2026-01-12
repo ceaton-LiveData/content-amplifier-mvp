@@ -105,16 +105,47 @@ export default function ContentLibrary() {
         </div>
 
         {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">{source?.title || source?.original_filename}</h1>
-          <p className="text-gray-600 mt-1">
-            Generated {content.length} content pieces
-          </p>
+        <div className="mb-6 flex justify-between items-start">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{source?.title || source?.original_filename}</h1>
+            <p className="text-gray-600 mt-1">
+              Generated {content.length} content pieces
+            </p>
+          </div>
+          {content.length > 0 && (
+            <button
+              onClick={() => navigate(`/generate/${sourceId}`)}
+              className="btn-secondary flex items-center"
+            >
+              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              Generate More
+            </button>
+          )}
         </div>
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
             {error}
+          </div>
+        )}
+
+        {/* Verification Disclaimer */}
+        {content.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+            <div className="flex">
+              <svg className="h-5 w-5 text-amber-500 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <h3 className="text-sm font-medium text-amber-800">Review before publishing</h3>
+                <p className="text-sm text-amber-700 mt-1">
+                  This content is generated from your transcript. Please verify all facts, statistics, and claims before posting.
+                  Look for <span className="font-medium">[VERIFY]</span> tags that highlight statements needing source links or fact-checking.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 

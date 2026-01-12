@@ -5,10 +5,10 @@ import FileUpload from '../components/FileUpload'
 import { useAuth } from '../hooks/useAuth'
 import { extractText } from '../../core/processing/text-extractor'
 import { analyzeBrandVoice, analyzeStyleGuide } from '../../infrastructure/ai/claude'
-import { updateAccount } from '../../infrastructure/database/supabase'
+import { updateAccount, logApiUsage } from '../../infrastructure/database/supabase'
 
 export default function Onboarding() {
-  const { user, refreshAccount } = useAuth()
+  const { user, account, refreshAccount } = useAuth()
   const navigate = useNavigate()
 
   const [step, setStep] = useState(1) // 1: choose method, 2: input, 3: review
@@ -58,25 +58,46 @@ export default function Onboarding() {
     setLoading(true)
 
     try {
-      let profile = ''
+      let result = null
 
       if (method === 'styleguide') {
         // Extract rules from style guide
-        profile = await analyzeStyleGuide(styleGuideText, targetAudience, wordsToAvoid)
+        result = await analyzeStyleGuide(styleGuideText, targetAudience, wordsToAvoid)
       } else if (method === 'examples') {
         // Analyze writing examples
         const contentExamples = examples.filter(ex => ex.trim())
         if (contentExamples.length < 1) {
           throw new Error('Please provide at least one content example')
         }
-        profile = await analyzeBrandVoice(contentExamples, targetAudience, wordsToAvoid)
+        result = await analyzeBrandVoice(contentExamples, targetAudience, wordsToAvoid)
       } else if (method === 'both') {
         // Combine style guide rules with example analysis
         const contentExamples = examples.filter(ex => ex.trim())
-        profile = await analyzeBrandVoiceCombined(styleGuideText, contentExamples, targetAudience, wordsToAvoid)
+        result = await analyzeBrandVoiceCombined(styleGuideText, contentExamples, targetAudience, wordsToAvoid)
       }
 
-      setBrandVoiceProfile(profile)
+      // Log API usage if we have account info
+      if (result?.usage && account?.id) {
+        try {
+          await logApiUsage({
+            account_id: account.id,
+            model: result.usage.model,
+            operation: 'brand_voice_analysis',
+            content_type: null,
+            input_tokens: result.usage.input_tokens,
+            output_tokens: result.usage.output_tokens,
+            cache_creation_input_tokens: result.usage.cache_creation_input_tokens,
+            cache_read_input_tokens: result.usage.cache_read_input_tokens,
+            estimated_cost: result.usage.estimated_cost,
+            request_time_ms: result.usage.request_time_ms,
+            status: 'success',
+          })
+        } catch (logErr) {
+          console.error('Failed to log API usage:', logErr)
+        }
+      }
+
+      setBrandVoiceProfile(result.text)
       setStep(3)
     } catch (err) {
       setError(err.message)
