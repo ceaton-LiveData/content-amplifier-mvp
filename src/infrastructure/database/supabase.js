@@ -185,6 +185,72 @@ export async function updateGeneratedContent(id, updates) {
   return data
 }
 
+// Get a single content item by ID
+export async function getGeneratedContentById(id) {
+  const { data, error } = await supabase
+    .from('generated_content')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+// Create a revision of existing content
+export async function createContentRevision(originalContent, revisedText, revisedMetadata = null) {
+  // Calculate revision number
+  const revisionNumber = (originalContent.revision_number || 0) + 1
+
+  // Find the root original (if this is a revision of a revision)
+  const rootOriginalId = originalContent.revision_of || originalContent.id
+
+  const { data, error } = await supabase
+    .from('generated_content')
+    .insert({
+      generation_id: originalContent.generation_id,
+      content_source_id: originalContent.content_source_id,
+      account_id: originalContent.account_id,
+      template_id: originalContent.template_id,
+      content_type: originalContent.content_type,
+      content_text: revisedText,
+      content_metadata: revisedMetadata || originalContent.content_metadata,
+      revision_of: rootOriginalId,
+      revision_number: revisionNumber,
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+// Get all revisions of a piece of content
+export async function getContentRevisions(contentId) {
+  // First get the root original ID
+  const original = await getGeneratedContentById(contentId)
+  const rootId = original.revision_of || contentId
+
+  // Get all content with this root ID (including the original)
+  const { data, error } = await supabase
+    .from('generated_content')
+    .select('*')
+    .or(`id.eq.${rootId},revision_of.eq.${rootId}`)
+    .order('revision_number', { ascending: true })
+
+  if (error) throw error
+  return data
+}
+
+// Get the original content for a revision
+export async function getOriginalContent(contentId) {
+  const content = await getGeneratedContentById(contentId)
+  if (!content.revision_of) {
+    return content // This is already the original
+  }
+  return getGeneratedContentById(content.revision_of)
+}
+
 // Template operations
 export async function getTemplates(accountId) {
   const { data, error } = await supabase

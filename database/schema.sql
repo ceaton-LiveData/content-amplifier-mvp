@@ -175,6 +175,10 @@ CREATE TABLE generated_content (
   is_archived BOOLEAN DEFAULT false,
   archived_at TIMESTAMP WITH TIME ZONE,
 
+  -- Revision tracking (for AI polish/revise feature)
+  revision_of UUID REFERENCES generated_content(id) ON DELETE SET NULL,
+  revision_number INTEGER DEFAULT 0, -- 0 = original, 1+ = revision count
+
   -- Timestamps
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -186,6 +190,7 @@ CREATE INDEX idx_generated_content_source_id ON generated_content(content_source
 CREATE INDEX idx_generated_content_type ON generated_content(content_type);
 CREATE INDEX idx_generated_content_created_at ON generated_content(created_at DESC);
 CREATE INDEX idx_generated_content_archived ON generated_content(is_archived);
+CREATE INDEX idx_generated_content_revision_of ON generated_content(revision_of);
 
 -- ============================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
