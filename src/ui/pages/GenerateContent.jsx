@@ -46,6 +46,7 @@ export default function GenerateContent() {
   const [selectedTone, setSelectedTone] = useState(null)
   const [linkedinLength, setLinkedinLength] = useState('medium')
   const [emailLength, setEmailLength] = useState('medium')
+  const [emailQuality, setEmailQuality] = useState('production') // 'quick' or 'production'
   const [progress, setProgress] = useState({ current: 0, total: 0, currentType: '', stage: '' })
 
   useEffect(() => {
@@ -131,7 +132,7 @@ export default function GenerateContent() {
             account.target_audience,
             account.words_to_avoid,
             source.source_type || 'transcript',
-            { linkedinLength, emailLength },
+            { linkedinLength, emailLength, emailQuality },
             onStageChange
           )
 
@@ -349,31 +350,69 @@ export default function GenerateContent() {
                         </p>
                       </div>
                     )}
-                    {/* Email length selector */}
+                    {/* Email length and quality selector */}
                     {type.hasLengthOption && type.lengthType === 'email' && isSelected && (
-                      <div className="border border-t-0 border-primary-500 bg-primary-50 rounded-b-lg p-3">
-                        <p className="text-xs font-medium text-gray-600 mb-2">Email length:</p>
-                        <div className="flex gap-2">
-                          {EMAIL_LENGTH_OPTIONS.map((opt) => (
+                      <div className="border border-t-0 border-primary-500 bg-primary-50 rounded-b-lg p-3 space-y-3">
+                        <div>
+                          <p className="text-xs font-medium text-gray-600 mb-2">Email length:</p>
+                          <div className="flex gap-2">
+                            {EMAIL_LENGTH_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => setEmailLength(opt.id)}
+                                className={`
+                                  flex-1 px-2 py-1.5 text-xs rounded border transition-colors
+                                  ${emailLength === opt.id
+                                    ? 'border-primary-600 bg-primary-600 text-white'
+                                    : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                  }
+                                `}
+                              >
+                                {opt.name}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1.5">
+                            {EMAIL_LENGTH_OPTIONS.find(o => o.id === emailLength)?.hint}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-gray-600 mb-2">Quality mode:</p>
+                          <div className="flex gap-2">
                             <button
-                              key={opt.id}
                               type="button"
-                              onClick={() => setEmailLength(opt.id)}
+                              onClick={() => setEmailQuality('quick')}
                               className={`
                                 flex-1 px-2 py-1.5 text-xs rounded border transition-colors
-                                ${emailLength === opt.id
+                                ${emailQuality === 'quick'
                                   ? 'border-primary-600 bg-primary-600 text-white'
                                   : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
                                 }
                               `}
                             >
-                              {opt.name}
+                              Quick
                             </button>
-                          ))}
+                            <button
+                              type="button"
+                              onClick={() => setEmailQuality('production')}
+                              className={`
+                                flex-1 px-2 py-1.5 text-xs rounded border transition-colors
+                                ${emailQuality === 'production'
+                                  ? 'border-primary-600 bg-primary-600 text-white'
+                                  : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                }
+                              `}
+                            >
+                              Production
+                            </button>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1.5">
+                            {emailQuality === 'quick'
+                              ? 'Faster generation, good for drafts'
+                              : 'Expert review + polish, ready to send (recommended)'}
+                          </p>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1.5">
-                          {EMAIL_LENGTH_OPTIONS.find(o => o.id === emailLength)?.hint}
-                        </p>
                       </div>
                     )}
                   </div>
@@ -447,7 +486,7 @@ const LINKEDIN_LENGTH_CONFIG = {
 
 // Helper function to generate content for a specific type
 async function generateContentForType(typeId, count, sourceText, brandVoice, toneOverride, targetAudience, wordsToAvoid, sourceType = 'transcript', options = {}, onStageChange = null) {
-  const { linkedinLength = 'medium', emailLength = 'medium' } = options
+  const { linkedinLength = 'medium', emailLength = 'medium', emailQuality = 'production' } = options
 
   const toneInstruction = toneOverride === 'formal'
     ? 'Use a more formal, executive-level tone than usual.'
@@ -626,8 +665,8 @@ Only flag claims that genuinely need verification - don't flag obvious statement
 
 Always maintain the brand voice while creating content. Be specific, use examples from the source content, and create content that provides real value to readers.`
 
-  // For email sequences, use 3-call adversarial flow for production quality
-  if (typeId === 'email_sequence') {
+  // For email sequences, optionally use 3-call adversarial flow for production quality
+  if (typeId === 'email_sequence' && emailQuality === 'production') {
     return await generateEmailsWithReview(prompts[typeId], systemPrompt, count, onStageChange)
   }
 
