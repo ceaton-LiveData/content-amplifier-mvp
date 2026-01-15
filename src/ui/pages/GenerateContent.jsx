@@ -6,9 +6,9 @@ import { getContentSource, createGeneration, updateGeneration, saveGeneratedCont
 import { generateWithCache } from '../../infrastructure/ai/claude'
 
 const CONTENT_TYPES = [
-  { id: 'linkedin_post', name: 'LinkedIn Posts', count: 5, defaultChecked: true, hasLengthOption: true },
-  { id: 'blog_post', name: 'Blog Post', count: 1, defaultChecked: true },
-  { id: 'email_sequence', name: 'Email Sequence', count: 5, defaultChecked: true, hasLengthOption: true, lengthType: 'email' },
+  { id: 'linkedin_post', name: 'LinkedIn Posts', count: 5, defaultChecked: false, hasLengthOption: true },
+  { id: 'blog_post', name: 'Blog Post', count: 1, defaultChecked: false },
+  { id: 'email_sequence', name: 'Email Sequence', count: 5, defaultChecked: false, hasLengthOption: true, lengthType: 'email' },
   { id: 'single_email', name: 'Single Email', count: 1, defaultChecked: false, hasLengthOption: true, lengthType: 'email' },
   { id: 'twitter_thread', name: 'Twitter Thread', count: 1, defaultChecked: false },
   { id: 'executive_summary', name: 'Executive Summary', count: 1, defaultChecked: false },
