@@ -571,13 +571,17 @@ ${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
 ${sourceLabel}:
 ${sourceText.substring(0, 8000)}
 
+IMPORTANT: Number emails sequentially (EMAIL 1, EMAIL 2, EMAIL 3, EMAIL 4, EMAIL 5) in the order they should be sent.
+
 FORMAT each email exactly as:
----EMAIL N---
+---EMAIL 1---
 Subject: [subject line]
 Preview: [preview text]
-Send: Day [number]
 
-[email body]`,
+[email body]
+
+---EMAIL 2---
+...and so on`,
 
     twitter_thread: `Create a Twitter/X thread based on the following ${sourceInfo.name}. The thread should:
 - Have 8-12 tweets
@@ -700,7 +704,8 @@ IMPORTANT:
 - Only fix the specific issues mentioned
 - Keep the same voice, structure, and message
 - Don't add things that weren't requested
-- Keep the same FORMAT (---EMAIL N---, Subject:, Preview:, Send:)
+- Keep the same FORMAT (---EMAIL N---, Subject:, Preview:)
+- Keep emails numbered sequentially (1, 2, 3, 4, 5)
 - If feedback says "Good as-is", don't change that email
 
 ORIGINAL EMAILS:
@@ -770,26 +775,23 @@ function parseResponse(typeId, response, expectedCount) {
     }
   } else if (typeId === 'email_sequence') {
     const emails = response.split(/---EMAIL \d+---/).filter(e => e.trim())
-    for (const email of emails) {
+    for (let i = 0; i < emails.length; i++) {
+      const email = emails[i]
       const lines = email.trim().split('\n')
       const subjectLine = lines.find(l => l.toLowerCase().startsWith('subject:'))
       const previewLine = lines.find(l => l.toLowerCase().startsWith('preview:'))
-      const sendLine = lines.find(l => l.toLowerCase().startsWith('send:'))
 
       const subject = subjectLine ? subjectLine.replace(/^subject:\s*/i, '') : ''
       const preview_text = previewLine ? previewLine.replace(/^preview:\s*/i, '') : ''
-      const sendMatch = sendLine ? sendLine.match(/day\s*(\d+)/i) : null
-      const send_day = sendMatch ? parseInt(sendMatch[1], 10) : null
 
       const body = lines.filter(l =>
         !l.toLowerCase().startsWith('subject:') &&
-        !l.toLowerCase().startsWith('preview:') &&
-        !l.toLowerCase().startsWith('send:')
+        !l.toLowerCase().startsWith('preview:')
       ).join('\n').trim()
 
       results.push({
         text: body,
-        metadata: { subject, preview_text, send_day }
+        metadata: { subject, preview_text, email_number: i + 1 }
       })
     }
   } else if (typeId === 'twitter_thread') {
