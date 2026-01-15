@@ -6,11 +6,17 @@ import { getContentSource, createGeneration, updateGeneration, saveGeneratedCont
 import { generateWithCache } from '../../infrastructure/ai/claude'
 
 const CONTENT_TYPES = [
-  { id: 'linkedin_post', name: 'LinkedIn Posts', count: 5, defaultChecked: true },
+  { id: 'linkedin_post', name: 'LinkedIn Posts', count: 5, defaultChecked: true, hasLengthOption: true },
   { id: 'blog_post', name: 'Blog Post', count: 1, defaultChecked: true },
   { id: 'email_sequence', name: 'Email Sequence', count: 5, defaultChecked: true },
   { id: 'twitter_thread', name: 'Twitter Thread', count: 1, defaultChecked: false },
   { id: 'executive_summary', name: 'Executive Summary', count: 1, defaultChecked: false },
+]
+
+const LINKEDIN_LENGTH_OPTIONS = [
+  { id: 'short', name: 'Short', chars: '150-300', hint: 'Quick insights, hot takes' },
+  { id: 'medium', name: 'Medium', chars: '1,000-1,500', hint: 'Stories + value (recommended)' },
+  { id: 'long', name: 'Long', chars: '1,500-2,500', hint: 'Deep frameworks, case studies' },
 ]
 
 const TONE_OPTIONS = [
@@ -33,6 +39,7 @@ export default function GenerateContent() {
   const [selectedTypes, setSelectedTypes] = useState([])
   const [existingTypes, setExistingTypes] = useState([])
   const [selectedTone, setSelectedTone] = useState(null)
+  const [linkedinLength, setLinkedinLength] = useState('medium')
   const [progress, setProgress] = useState({ current: 0, total: 0, currentType: '' })
 
   useEffect(() => {
@@ -111,7 +118,8 @@ export default function GenerateContent() {
             selectedTone,
             account.target_audience,
             account.words_to_avoid,
-            source.source_type || 'transcript'
+            source.source_type || 'transcript',
+            { linkedinLength }
           )
 
           // Log API usage
@@ -260,37 +268,68 @@ export default function GenerateContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {CONTENT_TYPES.map((type) => {
                 const alreadyGenerated = existingTypes.includes(type.id)
+                const isSelected = selectedTypes.includes(type.id)
                 return (
-                  <label
-                    key={type.id}
-                    className={`
-                      flex items-center p-3 border rounded-lg cursor-pointer transition-colors
-                      ${selectedTypes.includes(type.id)
-                        ? 'border-primary-500 bg-primary-50'
-                        : alreadyGenerated
-                        ? 'border-green-200 bg-green-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                      }
-                    `}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTypes.includes(type.id)}
-                      onChange={() => toggleType(type.id)}
-                      className="h-4 w-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
-                    />
-                    <span className="ml-3 flex-1">
-                      <span className="text-sm font-medium text-gray-900">{type.name}</span>
-                      <span className="text-sm text-gray-500 ml-1">({type.count})</span>
-                    </span>
-                    {alreadyGenerated && (
-                      <span className="flex items-center text-green-600" title="Already generated">
-                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
+                  <div key={type.id}>
+                    <label
+                      className={`
+                        flex items-center p-3 border rounded-lg cursor-pointer transition-colors
+                        ${isSelected
+                          ? 'border-primary-500 bg-primary-50'
+                          : alreadyGenerated
+                          ? 'border-green-200 bg-green-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                        }
+                        ${type.hasLengthOption && isSelected ? 'rounded-b-none' : ''}
+                      `}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleType(type.id)}
+                        className="h-4 w-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
+                      />
+                      <span className="ml-3 flex-1">
+                        <span className="text-sm font-medium text-gray-900">{type.name}</span>
+                        <span className="text-sm text-gray-500 ml-1">({type.count})</span>
                       </span>
+                      {alreadyGenerated && (
+                        <span className="flex items-center text-green-600" title="Already generated">
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </span>
+                      )}
+                    </label>
+                    {/* LinkedIn length selector */}
+                    {type.hasLengthOption && isSelected && (
+                      <div className="border border-t-0 border-primary-500 bg-primary-50 rounded-b-lg p-3">
+                        <p className="text-xs font-medium text-gray-600 mb-2">Post length:</p>
+                        <div className="flex gap-2">
+                          {LINKEDIN_LENGTH_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setLinkedinLength(opt.id)}
+                              className={`
+                                flex-1 px-2 py-1.5 text-xs rounded border transition-colors
+                                ${linkedinLength === opt.id
+                                  ? 'border-primary-600 bg-primary-600 text-white'
+                                  : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                }
+                              `}
+                              title={opt.hint}
+                            >
+                              {opt.name}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1.5">
+                          {LINKEDIN_LENGTH_OPTIONS.find(o => o.id === linkedinLength)?.hint}
+                        </p>
+                      </div>
                     )}
-                  </label>
+                  </div>
                 )
               })}
             </div>
@@ -352,8 +391,17 @@ const SOURCE_TYPE_LABELS = {
   other: { name: 'content', verb: 'from', context: 'Transform this source material into the requested content format.' },
 }
 
+// LinkedIn length configurations
+const LINKEDIN_LENGTH_CONFIG = {
+  short: { chars: '150-300', description: 'Quick insight or hot take' },
+  medium: { chars: '1,000-1,500', description: 'Story with value and takeaway' },
+  long: { chars: '1,500-2,500', description: 'Deep framework or case study' },
+}
+
 // Helper function to generate content for a specific type
-async function generateContentForType(typeId, count, sourceText, brandVoice, toneOverride, targetAudience, wordsToAvoid, sourceType = 'transcript') {
+async function generateContentForType(typeId, count, sourceText, brandVoice, toneOverride, targetAudience, wordsToAvoid, sourceType = 'transcript', options = {}) {
+  const { linkedinLength = 'medium' } = options
+
   const toneInstruction = toneOverride === 'formal'
     ? 'Use a more formal, executive-level tone than usual.'
     : toneOverride === 'casual'
@@ -365,15 +413,33 @@ async function generateContentForType(typeId, count, sourceText, brandVoice, ton
   const sourceInfo = SOURCE_TYPE_LABELS[sourceType] || SOURCE_TYPE_LABELS.other
   const sourceLabel = sourceInfo.name.toUpperCase()
 
+  const lengthConfig = LINKEDIN_LENGTH_CONFIG[linkedinLength]
+
   const prompts = {
-    linkedin_post: `Generate ${count} LinkedIn posts based on the following ${sourceInfo.name}. Each post should:
-- Be 150-200 words
-- Start with an attention-grabbing hook
-- Include a specific insight or data point ${sourceInfo.verb} the ${sourceInfo.name}
-- End with a question or call-to-action to drive engagement
-- Use short paragraphs (1-3 sentences each)
-- Write in PLAIN TEXT only - no markdown formatting (no #, **, *, or other markup)
-- Use line breaks to separate paragraphs, not headers
+    linkedin_post: `Generate ${count} LinkedIn posts ${sourceInfo.verb} the following ${sourceInfo.name}.
+
+FORMAT RULES:
+- Length: ${lengthConfig.chars} characters (${lengthConfig.description})
+- First 2-3 lines = hook (appears before "see more" fold - must grab attention)
+- 1-2 sentences per paragraph MAX
+- Line break between EVERY thought
+- PLAIN TEXT only - no markdown, no hashtags in body
+
+HOOK (vary these across posts):
+- Contrarian: "Unpopular opinion:" / "Stop doing X" / "Most people get X wrong"
+- Vulnerable: "I failed at X..." / "I made a $X mistake..."
+- Data: "I analyzed X and found..." / specific metrics from source
+- Bold claim: "The X no one talks about" / "This changed how I..."
+
+STRUCTURE: Hook → Story/proof → Lesson → Specific CTA
+
+CTA (must be specific, not vague):
+✓ "Which resonates most - 1, 2, or 3?"
+✓ "What would you add to this?"
+✓ "Am I wrong here? Change my mind"
+✗ NEVER use "Let me know what you think" or "Share your thoughts"
+
+AVOID: "I'm excited to announce", "I'm humbled to share", walls of text, generic advice
 
 ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
@@ -382,7 +448,7 @@ ${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
 ${sourceLabel}:
 ${sourceText.substring(0, 8000)}
 
-Generate exactly ${count} posts. Format each post with "---POST N---" separator where N is the post number (1, 2, 3, etc).`,
+Generate exactly ${count} posts with variety in hooks. Format: "---POST N---" separator.`,
 
     blog_post: `Write a blog post based on the following ${sourceInfo.name}. The post should:
 - Be 800-1200 words
