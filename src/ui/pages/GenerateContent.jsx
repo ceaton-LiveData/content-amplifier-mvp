@@ -553,43 +553,16 @@ ${sourceText.substring(0, 12000)}
 
 Format: Start with the title on the first line, then the content.`,
 
-    email_sequence: `Create a ${count}-email nurture sequence based on the following ${sourceInfo.name}.
+    email_sequence: `Create a ${count}-email nurture sequence based on the following ${sourceInfo.name}. Each email should:
+- Be ${emailLength === 'short' ? '50-100 words' : '100-150 words'}
+- Have a compelling subject line (30-50 characters)
+- Have a preview text line (40-90 characters, complements subject)
+- Build on the previous email in the sequence
+- Include one key insight ${sourceInfo.verb} the ${sourceInfo.name}
+- Have a clear call-to-action
+- Write in PLAIN TEXT only - no markdown formatting
 
-SEQUENCE STRUCTURE:
-- Email 1: THE BIG IDEA - Hook with insight. Pure value, zero selling.
-- Email 2: THE FRAMEWORK - Actionable steps. Build credibility through usefulness.
-- Email 3: CASE STUDY - Specific example with results. Social proof.
-- Email 4: OBJECTION HANDLER - Address "yeah buts". Soft product mention OK.
-- Email 5: THE OFFER - Clear CTA with urgency. Connect value to action.
-
-EMAIL FORMAT:
-- Subject: 30-50 chars. Use: Question | Number | How-to | Curiosity gap
-- Preview: 40-90 chars. Complement subject, don't repeat it.
-- Body: ${emailLength === 'short' ? '50-100 words' : '100-150 words'}, PLAIN TEXT only
-- 1-3 sentences per paragraph MAX. White space between paragraphs.
-- P.S. line on emails 3-5
-
-HOOK PATTERN (first line of every email):
-Start with a question OR a specific stat/claim. Then one concrete example.
-✓ "What if your biggest competitor is... your own inbox?"
-✓ "Last Tuesday, I watched a CMO delete 47 emails in 90 seconds."
-✗ NOT: "I hope this email finds you well" or "I wanted to reach out"
-
-SPECIFICITY REQUIREMENT:
-Replace vague with concrete. "3 spreadsheets and a Monday morning" not "inefficient processes."
-Use numbers, timeframes, specific scenarios from the source content.
-
-CTA EVOLUTION:
-- Emails 1-3: Engagement CTAs ("Reply with your biggest challenge", "Which resonates - A or B?")
-- Email 4: Soft conversion ("See how this works")
-- Email 5: Direct conversion ("Book your call", "Start your trial")
-
-STYLE - CRITICAL:
-✓ Conversational: Write like a smart friend, not a corporation
-✓ Show don't tell: Stories and examples over claims
-✓ Scannable: Short paragraphs, clear structure
-✗ NEVER USE: "leverage", "synergy", "ecosystem", "orchestrate", "circle back", "touch base"
-✗ NEVER USE: "I hope this finds you well", "Just checking in", "Quick question"
+The sequence should educate the reader progressively, building trust before any selling.
 
 ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
@@ -667,7 +640,7 @@ Always maintain the brand voice while creating content. Be specific, use example
 
   // For email sequences, optionally use 3-call adversarial flow for production quality
   if (typeId === 'email_sequence' && emailQuality === 'production') {
-    return await generateEmailsWithReview(prompts[typeId], systemPrompt, count, onStageChange)
+    return await generateEmailsWithReview(prompts[typeId], systemPrompt, count, onStageChange, brandVoice, emailLength)
   }
 
   const { text, usage } = await generateWithCache(prompts[typeId], systemPrompt)
@@ -677,61 +650,71 @@ Always maintain the brand voice while creating content. Be specific, use example
   return { content, usage }
 }
 
-// Email critique prompt for adversarial review
-const EMAIL_CRITIQUE_PROMPT = `You are a ruthless email marketing editor. Review the email sequence below against these standards:
+// Email critique prompt for adversarial review - now accepts brand voice
+function getEmailCritiquePrompt(brandVoice, targetLength) {
+  return `You are a helpful editor reviewing emails for a specific brand. Your job is to polish, not rewrite.
 
-HOOK CHECK (first line of each email):
-- Does it start with a question OR specific stat/claim?
-- Is there a concrete example within the first 2 sentences?
-- Flag any that start with "I hope", "I wanted to", "Just checking"
+BRAND VOICE TO MATCH:
+${brandVoice}
 
-SPECIFICITY CHECK:
-- Are there vague phrases that should be concrete? ("inefficient processes" → "3 spreadsheets and a Monday morning")
-- Are numbers and timeframes used where possible?
+TARGET LENGTH: ${targetLength} words per email
 
-TONE CHECK - Flag any of these:
-- Corporate buzzwords: leverage, synergy, ecosystem, orchestrate, circle back, touch base
-- Generic openers: "Quick question", "Checking in", "Hope this finds you well"
-- Walls of text (paragraphs over 3 sentences)
+REVIEW FOR THESE ISSUES ONLY:
 
-CTA CHECK:
-- Emails 1-3: Should have ENGAGEMENT CTAs (reply, respond, answer a question)
-- Emails 4-5: Should have CONVERSION CTAs (book, schedule, start)
-- Flag mismatched CTAs
+1. LENGTH CHECK
+   - Are emails close to the target length? Flag if significantly over/under.
 
-STRUCTURE CHECK:
-- Is there white space between paragraphs?
-- Are paragraphs 1-3 sentences max?
-- Do emails 3-5 have P.S. lines?
+2. BUZZWORD CHECK - Flag these corporate phrases:
+   - "leverage", "synergy", "ecosystem", "orchestrate", "circle back", "touch base"
+   - "I hope this finds you well", "Just checking in", "Quick question", "I wanted to reach out"
+   - Any stiff, corporate-sounding language that doesn't match the brand voice
 
-For each issue found, provide:
-1. Email number
-2. The problem
-3. Specific fix suggestion
+3. CLARITY CHECK
+   - Are there walls of text? (paragraphs should be 1-3 sentences)
+   - Is anything confusing or unclear?
 
-Be harsh. The goal is production-ready emails.
+4. BRAND VOICE CHECK
+   - Does the tone match the brand voice above?
+   - Flag anything that feels off-brand
+
+DO NOT:
+- Prescribe specific hook patterns or structures
+- Require P.S. lines or specific CTA types
+- Rewrite content that's working fine
+- Add requirements the original didn't have
+
+For each issue, briefly note:
+- Email number
+- The problem
+- A light-touch fix suggestion
+
+If an email is good, say "Email N: Good as-is"
 
 EMAIL SEQUENCE TO REVIEW:
 `
+}
 
-const EMAIL_REVISE_PROMPT = `Revise the email sequence based on the editor feedback below.
+const EMAIL_REVISE_PROMPT = `Polish the email sequence based on the editor notes below.
 
 IMPORTANT:
-- Apply ALL the feedback
-- Maintain the same overall structure and message
+- Only fix the specific issues mentioned
+- Keep the same voice, structure, and message
+- Don't add things that weren't requested
 - Keep the same FORMAT (---EMAIL N---, Subject:, Preview:, Send:)
-- Make the emails genuinely better, not just technically compliant
+- If feedback says "Good as-is", don't change that email
 
 ORIGINAL EMAILS:
 [ORIGINAL]
 
-EDITOR FEEDBACK:
+EDITOR NOTES:
 [FEEDBACK]
 
-Output the complete revised email sequence in the exact same format.`
+Output the complete email sequence in the exact same format.`
 
 // 3-call adversarial flow for emails: generate → critique → revise
-async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChange) {
+async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChange, brandVoice, emailLength) {
+  const targetLength = emailLength === 'short' ? '50-100' : '100-150'
+
   let totalUsage = {
     model: 'claude-sonnet-4-20250514',
     input_tokens: 0,
@@ -747,14 +730,14 @@ async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChan
   const { text: initialEmails, usage: usage1 } = await generateWithCache(prompt, systemPrompt)
   addUsage(totalUsage, usage1)
 
-  // Stage 2: Critique the emails
-  if (onStageChange) onStageChange('Step 2/3: Expert review...')
-  const critiquePrompt = EMAIL_CRITIQUE_PROMPT + initialEmails
-  const { text: critique, usage: usage2 } = await generateWithCache(critiquePrompt, 'You are an expert email marketing editor. Be specific and actionable in your feedback.')
+  // Stage 2: Critique the emails (now brand-voice aware)
+  if (onStageChange) onStageChange('Step 2/3: Reviewing...')
+  const critiquePrompt = getEmailCritiquePrompt(brandVoice, targetLength) + initialEmails
+  const { text: critique, usage: usage2 } = await generateWithCache(critiquePrompt, 'You are a helpful editor. Focus on polish, not rewriting.')
   addUsage(totalUsage, usage2)
 
   // Stage 3: Revise based on critique
-  if (onStageChange) onStageChange('Step 3/3: Polishing final version...')
+  if (onStageChange) onStageChange('Step 3/3: Polishing...')
   const revisePrompt = EMAIL_REVISE_PROMPT
     .replace('[ORIGINAL]', initialEmails)
     .replace('[FEEDBACK]', critique)
