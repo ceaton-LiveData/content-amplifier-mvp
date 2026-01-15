@@ -473,15 +473,30 @@ ${sourceText.substring(0, 12000)}
 
 Format: Start with the title on the first line, then the content.`,
 
-    email_sequence: `Create a ${count}-email nurture sequence based on the following ${sourceInfo.name}. Each email should:
-- Be 100-150 words
-- Have a compelling subject line
-- Build on the previous email
-- Include one key insight ${sourceInfo.verb} the ${sourceInfo.name}
-- Have a clear call-to-action
-- Write in PLAIN TEXT only - no markdown formatting (no #, **, *, or other markup)
+    email_sequence: `Create a ${count}-email nurture sequence based on the following ${sourceInfo.name}.
 
-The sequence should educate the reader progressively.
+EMAIL SEQUENCE STRUCTURE (follow this progression):
+- Email 1: THE BIG IDEA - Introduce the main concept/problem. Pure value, no selling. Hook them with insight.
+- Email 2: THE FRAMEWORK - Provide actionable steps or methodology. Build credibility through usefulness.
+- Email 3: CASE STUDY/PROOF - Show results with specific example. Social proof or before/after.
+- Email 4: OBJECTION HANDLER - Address common doubts or "yeah buts". Anticipate resistance.
+- Email 5: THE OFFER - Clear CTA with urgency. Connect the value from previous emails to action.
+
+EACH EMAIL MUST HAVE:
+- Subject line (30-50 chars, use: Question | Number | How-to | Curiosity gap)
+- Preview text (40-90 chars, complements subject - don't repeat it)
+- Body: 100-150 words, PLAIN TEXT only (no markdown)
+- Single clear CTA (one action per email)
+- P.S. line on emails 3-5 (creates scannable value)
+
+SUBJECT LINE FORMULAS:
+✓ "The [specific] mistake costing you [result]"
+✓ "[Number] [timeframe] to [desirable outcome]"
+✓ "Why [common belief] is wrong"
+✓ "How [person/company] achieved [specific result]"
+✗ AVOID: "Quick question", "Checking in", generic openers
+
+VALUE-TO-ASK RATIO: Emails 1-3 = 100% value. Email 4 = value + soft mention. Email 5 = value + clear ask.
 
 ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
@@ -490,7 +505,13 @@ ${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
 ${sourceLabel}:
 ${sourceText.substring(0, 8000)}
 
-Format each email with "---EMAIL N---" separator, then "Subject: [subject line]" on the next line, followed by the email body.`,
+FORMAT each email exactly as:
+---EMAIL N---
+Subject: [subject line]
+Preview: [preview text]
+Send: Day [number]
+
+[email body]`,
 
     twitter_thread: `Create a Twitter/X thread based on the following ${sourceInfo.name}. The thread should:
 - Have 8-12 tweets
@@ -571,11 +592,23 @@ function parseResponse(typeId, response, expectedCount) {
     for (const email of emails) {
       const lines = email.trim().split('\n')
       const subjectLine = lines.find(l => l.toLowerCase().startsWith('subject:'))
+      const previewLine = lines.find(l => l.toLowerCase().startsWith('preview:'))
+      const sendLine = lines.find(l => l.toLowerCase().startsWith('send:'))
+
       const subject = subjectLine ? subjectLine.replace(/^subject:\s*/i, '') : ''
-      const body = lines.filter(l => !l.toLowerCase().startsWith('subject:')).join('\n').trim()
+      const preview_text = previewLine ? previewLine.replace(/^preview:\s*/i, '') : ''
+      const sendMatch = sendLine ? sendLine.match(/day\s*(\d+)/i) : null
+      const send_day = sendMatch ? parseInt(sendMatch[1], 10) : null
+
+      const body = lines.filter(l =>
+        !l.toLowerCase().startsWith('subject:') &&
+        !l.toLowerCase().startsWith('preview:') &&
+        !l.toLowerCase().startsWith('send:')
+      ).join('\n').trim()
+
       results.push({
         text: body,
-        metadata: { subject }
+        metadata: { subject, preview_text, send_day }
       })
     }
   } else if (typeId === 'twitter_thread') {

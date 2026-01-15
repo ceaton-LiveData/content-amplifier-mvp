@@ -250,13 +250,18 @@ export default function ContentLibrary() {
                       <div className="flex justify-between items-start mb-2">
                         <span className="text-sm font-medium text-gray-500">
                           {type === 'email_sequence' && item.content_metadata?.subject
-                            ? `Email ${index + 1}: ${item.content_metadata.subject.substring(0, 30)}...`
+                            ? `Email ${index + 1}: ${item.content_metadata.subject.substring(0, 30)}${item.content_metadata.subject.length > 30 ? '...' : ''}`
                             : `#${index + 1}`
                           }
                         </span>
                         {type === 'linkedin_post' && item.content_metadata?.linkedin_length && (
                           <span className={`text-xs px-2 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
                             {LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.name || item.content_metadata.linkedin_length}
+                          </span>
+                        )}
+                        {type === 'email_sequence' && item.content_metadata?.send_day && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                            Day {item.content_metadata.send_day}
                           </span>
                         )}
                       </div>
@@ -306,6 +311,23 @@ export default function ContentLibrary() {
 
               {/* Modal Content */}
               <div className="p-4 overflow-y-auto flex-1">
+                {/* Email metadata (preview text, send day) */}
+                {selectedContent.content_type === 'email_sequence' && selectedContent.content_metadata && !isEditing && (
+                  <div className="mb-4 p-3 bg-gray-50 rounded-lg space-y-2">
+                    {selectedContent.content_metadata.preview_text && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 uppercase">Preview Text:</span>
+                        <p className="text-sm text-gray-700">{selectedContent.content_metadata.preview_text}</p>
+                      </div>
+                    )}
+                    {selectedContent.content_metadata.send_day && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 uppercase">Suggested Send:</span>
+                        <span className="text-sm text-gray-700 ml-2">Day {selectedContent.content_metadata.send_day}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {isEditing ? (
                   <textarea
                     value={editedText}
