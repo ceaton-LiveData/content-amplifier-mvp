@@ -93,6 +93,7 @@ export default function Calendar() {
   const [viewUnscheduledPost, setViewUnscheduledPost] = useState(null)
   const [editingUnscheduled, setEditingUnscheduled] = useState(false)
   const [editedUnscheduledText, setEditedUnscheduledText] = useState('')
+  const [activeContentTab, setActiveContentTab] = useState('linkedin_post')
 
   useEffect(() => {
     if (account?.id) {
@@ -459,10 +460,11 @@ export default function Calendar() {
             />
           </div>
 
-          {/* Unscheduled Posts Panel */}
+          {/* Unscheduled Content Panel with Tabs */}
           <div className={`w-80 flex-shrink-0 ${showUnscheduled ? '' : 'hidden'}`}>
-            <div className="card sticky top-4">
-              <div className="flex justify-between items-center mb-4">
+            <div className="card sticky top-4 p-0 overflow-hidden">
+              {/* Header */}
+              <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
                 <h3 className="font-semibold text-gray-900">Ready to Schedule</h3>
                 <button
                   onClick={() => setShowUnscheduled(false)}
@@ -475,32 +477,93 @@ export default function Calendar() {
                 </button>
               </div>
 
-              {unscheduledPosts.length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-sm text-gray-500 mb-2">No unscheduled content</p>
-                  <button
-                    onClick={() => navigate('/dashboard')}
-                    className="text-sm text-primary-600 hover:text-primary-700"
-                  >
-                    Generate more content
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-                  {/* Group by content type first, then by source */}
-                  {Object.entries(
-                    unscheduledPosts.reduce((groups, item) => {
-                      const contentType = item.content_type
-                      if (!groups[contentType]) {
-                        groups[contentType] = []
-                      }
-                      groups[contentType].push(item)
-                      return groups
-                    }, {})
-                  ).map(([contentType, items]) => {
-                    const typeConfig = CONTENT_TYPE_CONFIG[contentType] || CONTENT_TYPE_CONFIG.linkedin_post
-                    // Group items by source within each content type
-                    const bySource = items.reduce((sources, item) => {
+              {/* Content Type Tabs */}
+              {(() => {
+                // Count items per content type
+                const countsByType = unscheduledPosts.reduce((acc, item) => {
+                  acc[item.content_type] = (acc[item.content_type] || 0) + 1
+                  return acc
+                }, {})
+
+                const tabs = [
+                  { id: 'linkedin_post', label: 'LinkedIn', icon: 'in' },
+                  { id: 'blog_post', label: 'Blog', icon: 'B' },
+                  { id: 'email_sequence', label: 'Email', icon: 'E' },
+                ]
+
+                return (
+                  <div className="flex border-b border-gray-200">
+                    {tabs.map(tab => {
+                      const count = countsByType[tab.id] || 0
+                      const typeConfig = CONTENT_TYPE_CONFIG[tab.id]
+                      const isActive = activeContentTab === tab.id
+
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => setActiveContentTab(tab.id)}
+                          className={`flex-1 py-2 px-1 text-center transition-colors relative ${
+                            isActive
+                              ? 'bg-white'
+                              : 'bg-gray-50 hover:bg-gray-100'
+                          }`}
+                          style={isActive ? { borderBottom: `2px solid ${typeConfig.color.border}` } : {}}
+                        >
+                          <div className="flex items-center justify-center gap-1.5">
+                            <span
+                              className="w-5 h-5 rounded text-xs font-bold flex items-center justify-center"
+                              style={{
+                                backgroundColor: isActive ? typeConfig.color.border : typeConfig.color.bg,
+                                color: isActive ? 'white' : typeConfig.color.border,
+                              }}
+                            >
+                              {tab.icon}
+                            </span>
+                            <span className={`text-xs font-medium ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
+                              {count}
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
+
+              {/* Tab Content */}
+              <div className="p-3">
+                {unscheduledPosts.length === 0 ? (
+                  <div className="text-center py-6">
+                    <p className="text-sm text-gray-500 mb-2">No unscheduled content</p>
+                    <button
+                      onClick={() => navigate('/dashboard')}
+                      className="text-sm text-primary-600 hover:text-primary-700"
+                    >
+                      Generate more content
+                    </button>
+                  </div>
+                ) : (
+                  (() => {
+                    // Filter items for the active tab
+                    const filteredItems = unscheduledPosts.filter(item => item.content_type === activeContentTab)
+                    const typeConfig = CONTENT_TYPE_CONFIG[activeContentTab] || CONTENT_TYPE_CONFIG.linkedin_post
+
+                    if (filteredItems.length === 0) {
+                      return (
+                        <div className="text-center py-6">
+                          <p className="text-sm text-gray-500 mb-2">No {typeConfig.label.toLowerCase()} content ready</p>
+                          <button
+                            onClick={() => navigate('/dashboard')}
+                            className="text-sm text-primary-600 hover:text-primary-700"
+                          >
+                            Generate {typeConfig.label.toLowerCase()} content
+                          </button>
+                        </div>
+                      )
+                    }
+
+                    // Group by source
+                    const bySource = filteredItems.reduce((sources, item) => {
                       const sourceId = item.content_sources?.id || 'unknown'
                       const sourceTitle = item.content_sources?.title || item.content_sources?.original_filename || 'Untitled'
                       const key = `${sourceId}|${sourceTitle}`
@@ -512,23 +575,9 @@ export default function Calendar() {
                     }, {})
 
                     return (
-                      <div key={contentType} className="border border-gray-200 rounded-lg overflow-hidden">
-                        {/* Content Type Header */}
-                        <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-2" style={{ backgroundColor: typeConfig.color.bg }}>
-                          <span
-                            className="w-5 h-5 rounded text-xs font-bold flex items-center justify-center"
-                            style={{ backgroundColor: typeConfig.color.border, color: 'white' }}
-                          >
-                            {typeConfig.icon}
-                          </span>
-                          <span className="text-sm font-medium" style={{ color: typeConfig.color.text }}>
-                            {typeConfig.label} ({items.length})
-                          </span>
-                        </div>
-
-                        {/* Sources within this content type */}
+                      <div className="space-y-3 max-h-[55vh] overflow-y-auto">
                         {Object.entries(bySource).map(([key, group]) => (
-                          <div key={key}>
+                          <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
                             {/* Source Header */}
                             <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-100 flex items-center justify-between">
                               <span className="text-xs font-medium text-gray-600 truncate flex-1">
@@ -541,7 +590,7 @@ export default function Calendar() {
                                 View all
                               </button>
                             </div>
-                            {/* Items in this source */}
+                            {/* Items */}
                             <div className="divide-y divide-gray-100">
                               {group.items.map((item, idx) => (
                                 <div
@@ -550,7 +599,7 @@ export default function Calendar() {
                                 >
                                   <div className="flex items-center justify-between gap-2 mb-1.5">
                                     <span className="text-xs text-gray-400">
-                                      {contentType === 'email_sequence' && item.content_metadata?.subject
+                                      {activeContentTab === 'email_sequence' && item.content_metadata?.subject
                                         ? item.content_metadata.subject.substring(0, 25) + (item.content_metadata.subject.length > 25 ? '...' : '')
                                         : `#${idx + 1}`}
                                     </span>
@@ -592,9 +641,9 @@ export default function Calendar() {
                         ))}
                       </div>
                     )
-                  })}
-                </div>
-              )}
+                  })()
+                )}
+              </div>
             </div>
           </div>
         </div>
