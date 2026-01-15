@@ -382,7 +382,7 @@ export default function ContentLibrary() {
                       </svg>
                       Download .md
                     </button>
-                    {selectedContent.content_type === 'linkedin_post' && (
+                    {['linkedin_post', 'blog_post', 'email_sequence'].includes(selectedContent.content_type) && (
                       <button
                         onClick={() => {
                           setShowScheduleModal(true)
@@ -453,11 +453,19 @@ export default function ContentLibrary() {
                   onClick={async () => {
                     if (!scheduleDate) return
                     setScheduling(true)
+                    // Map content type to platform
+                    const platformMap = {
+                      linkedin_post: 'linkedin',
+                      blog_post: 'blog',
+                      email_sequence: 'email',
+                      twitter_thread: 'twitter',
+                    }
+                    const platform = platformMap[selectedContent.content_type] || 'other'
                     try {
                       await createScheduledPost({
                         account_id: account.id,
                         content_id: selectedContent.id,
-                        platform: 'linkedin',
+                        platform,
                         scheduled_date: scheduleDate,
                         scheduled_time: scheduleTime || null,
                         post_text: selectedContent.content_text,
@@ -467,7 +475,7 @@ export default function ContentLibrary() {
                       setSelectedContent(null)
                       navigate('/calendar')
                     } catch (err) {
-                      console.error('Failed to schedule post:', err)
+                      console.error('Failed to schedule content:', err)
                       setError('Failed to add to calendar')
                     } finally {
                       setScheduling(false)

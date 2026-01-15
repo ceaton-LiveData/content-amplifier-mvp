@@ -614,7 +614,7 @@ CREATE TABLE scheduled_posts (
   content_id UUID REFERENCES generated_content(id) ON DELETE CASCADE NOT NULL,
 
   -- Scheduling
-  platform TEXT NOT NULL DEFAULT 'linkedin' CHECK (platform IN ('linkedin', 'twitter', 'other')),
+  platform TEXT NOT NULL DEFAULT 'linkedin' CHECK (platform IN ('linkedin', 'twitter', 'blog', 'email', 'other')),
   scheduled_date DATE NOT NULL,
   scheduled_time TIME,
   timezone TEXT DEFAULT 'America/New_York',

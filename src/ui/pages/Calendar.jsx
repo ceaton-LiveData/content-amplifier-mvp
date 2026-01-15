@@ -11,7 +11,7 @@ import {
   updateScheduledPost,
   deleteScheduledPost,
   createScheduledPost,
-  getUnscheduledLinkedInPosts,
+  getUnscheduledContent,
   updateGeneratedContent,
 } from '../../infrastructure/database/supabase'
 
@@ -27,6 +27,49 @@ const LINKEDIN_LENGTH_LABELS = {
   short: { name: 'Short', color: 'bg-blue-100 text-blue-700' },
   medium: { name: 'Medium', color: 'bg-green-100 text-green-700' },
   long: { name: 'Long', color: 'bg-purple-100 text-purple-700' },
+}
+
+// Content type configuration with colors and icons
+const CONTENT_TYPE_CONFIG = {
+  linkedin_post: {
+    label: 'LinkedIn',
+    icon: 'in',
+    color: { bg: '#dbeafe', border: '#0077b5', text: '#1e40af' },
+    badgeClass: 'bg-blue-600 text-white',
+  },
+  blog_post: {
+    label: 'Blog',
+    icon: 'B',
+    color: { bg: '#fef3c7', border: '#d97706', text: '#92400e' },
+    badgeClass: 'bg-amber-500 text-white',
+  },
+  email_sequence: {
+    label: 'Email',
+    icon: 'E',
+    color: { bg: '#dcfce7', border: '#16a34a', text: '#166534' },
+    badgeClass: 'bg-green-600 text-white',
+  },
+  twitter_thread: {
+    label: 'Twitter',
+    icon: 'X',
+    color: { bg: '#f3f4f6', border: '#374151', text: '#1f2937' },
+    badgeClass: 'bg-gray-800 text-white',
+  },
+  executive_summary: {
+    label: 'Summary',
+    icon: 'S',
+    color: { bg: '#ede9fe', border: '#7c3aed', text: '#5b21b6' },
+    badgeClass: 'bg-purple-600 text-white',
+  },
+}
+
+// Map platform to content type (for scheduled posts)
+const PLATFORM_TO_CONTENT_TYPE = {
+  linkedin: 'linkedin_post',
+  blog: 'blog_post',
+  email: 'email_sequence',
+  twitter: 'twitter_thread',
+  other: 'executive_summary',
 }
 
 export default function Calendar() {
@@ -62,7 +105,7 @@ export default function Calendar() {
       setLoading(true)
       const [scheduledData, unscheduledData] = await Promise.all([
         listScheduledPosts(account.id),
-        getUnscheduledLinkedInPosts(account.id),
+        getUnscheduledContent(account.id),
       ])
       setPosts(scheduledData)
       setUnscheduledPosts(unscheduledData)
@@ -86,19 +129,32 @@ export default function Calendar() {
 
   async function loadUnscheduledPosts() {
     try {
-      const data = await getUnscheduledLinkedInPosts(account.id)
+      const data = await getUnscheduledContent(account.id)
       setUnscheduledPosts(data)
     } catch (err) {
-      console.error('Failed to load unscheduled posts:', err)
+      console.error('Failed to load unscheduled content:', err)
     }
   }
 
   // Convert posts to FullCalendar events
   const events = posts.map(post => {
-    const colors = STATUS_COLORS[post.status] || STATUS_COLORS.scheduled
+    // Get content type from the generated_content or from platform mapping
+    const contentType = post.generated_content?.content_type || PLATFORM_TO_CONTENT_TYPE[post.platform] || 'linkedin_post'
+    const typeConfig = CONTENT_TYPE_CONFIG[contentType] || CONTENT_TYPE_CONFIG.linkedin_post
+
+    // Use content type colors, but adjust for status if not scheduled
+    let colors = typeConfig.color
+    if (post.status === 'published') {
+      colors = STATUS_COLORS.published
+    } else if (post.status === 'failed') {
+      colors = STATUS_COLORS.failed
+    } else if (post.status === 'draft') {
+      colors = STATUS_COLORS.draft
+    }
+
     return {
       id: post.id,
-      title: post.post_text.substring(0, 50) + (post.post_text.length > 50 ? '...' : ''),
+      title: `[${typeConfig.icon}] ${post.post_text.substring(0, 40)}${post.post_text.length > 40 ? '...' : ''}`,
       start: post.scheduled_time
         ? `${post.scheduled_date}T${post.scheduled_time}`
         : post.scheduled_date,
@@ -108,6 +164,7 @@ export default function Calendar() {
       textColor: colors.text,
       extendedProps: {
         ...post,
+        contentType,
       },
     }
   })
@@ -193,15 +250,28 @@ export default function Calendar() {
     setEditedText('')
   }
 
+  // Map content type to platform for scheduling
+  function getplatformForContentType(contentType) {
+    const mapping = {
+      linkedin_post: 'linkedin',
+      blog_post: 'blog',
+      email_sequence: 'email',
+      twitter_thread: 'twitter',
+      executive_summary: 'other',
+    }
+    return mapping[contentType] || 'other'
+  }
+
   async function handleQuickSchedule() {
     if (!quickSchedulePost || !quickScheduleDate) return
 
     try {
       setSaving(true)
+      const platform = getplatformForContentType(quickSchedulePost.content_type)
       await createScheduledPost({
         account_id: account.id,
         content_id: quickSchedulePost.id,
-        platform: 'linkedin',
+        platform,
         scheduled_date: quickScheduleDate,
         scheduled_time: quickScheduleTime || null,
         post_text: quickSchedulePost.content_text,
@@ -212,8 +282,8 @@ export default function Calendar() {
       setQuickScheduleTime('09:00')
       await loadAllData()
     } catch (err) {
-      console.error('Failed to schedule post:', err)
-      setError('Failed to schedule post')
+      console.error('Failed to schedule content:', err)
+      setError('Failed to schedule content')
     } finally {
       setSaving(false)
     }
@@ -282,7 +352,7 @@ export default function Calendar() {
         <div className="mb-6 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Content Calendar</h1>
-            <p className="text-gray-600 mt-1">Plan and schedule your LinkedIn posts</p>
+            <p className="text-gray-600 mt-1">Plan and schedule your content publishing</p>
           </div>
           <div className="flex items-center gap-3">
             {/* View Toggle */}
@@ -325,22 +395,38 @@ export default function Calendar() {
         )}
 
         {/* Legend */}
-        <div className="flex gap-4 mb-4 text-sm">
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded" style={{ backgroundColor: STATUS_COLORS.scheduled.border }}></span>
-            <span className="text-gray-600">Scheduled</span>
+        <div className="flex flex-wrap gap-x-6 gap-y-2 mb-4 text-sm">
+          {/* Content Type Legend */}
+          <div className="flex items-center gap-3">
+            <span className="text-gray-500 font-medium">Content:</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-5 h-5 rounded text-xs font-bold flex items-center justify-center" style={{ backgroundColor: CONTENT_TYPE_CONFIG.linkedin_post.color.bg, color: CONTENT_TYPE_CONFIG.linkedin_post.color.border }}>in</span>
+              <span className="text-gray-600">LinkedIn</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-5 h-5 rounded text-xs font-bold flex items-center justify-center" style={{ backgroundColor: CONTENT_TYPE_CONFIG.blog_post.color.bg, color: CONTENT_TYPE_CONFIG.blog_post.color.border }}>B</span>
+              <span className="text-gray-600">Blog</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-5 h-5 rounded text-xs font-bold flex items-center justify-center" style={{ backgroundColor: CONTENT_TYPE_CONFIG.email_sequence.color.bg, color: CONTENT_TYPE_CONFIG.email_sequence.color.border }}>E</span>
+              <span className="text-gray-600">Email</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded" style={{ backgroundColor: STATUS_COLORS.published.border }}></span>
-            <span className="text-gray-600">Published</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded" style={{ backgroundColor: STATUS_COLORS.draft.border }}></span>
-            <span className="text-gray-600">Draft</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded" style={{ backgroundColor: STATUS_COLORS.failed.border }}></span>
-            <span className="text-gray-600">Failed</span>
+          {/* Status Legend */}
+          <div className="flex items-center gap-3">
+            <span className="text-gray-500 font-medium">Status:</span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded" style={{ backgroundColor: STATUS_COLORS.published.border }}></span>
+              <span className="text-gray-600">Published</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded" style={{ backgroundColor: STATUS_COLORS.draft.border }}></span>
+              <span className="text-gray-600">Draft</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded" style={{ backgroundColor: STATUS_COLORS.failed.border }}></span>
+              <span className="text-gray-600">Failed</span>
+            </div>
           </div>
         </div>
 
@@ -391,7 +477,7 @@ export default function Calendar() {
 
               {unscheduledPosts.length === 0 ? (
                 <div className="text-center py-6">
-                  <p className="text-sm text-gray-500 mb-2">No unscheduled posts</p>
+                  <p className="text-sm text-gray-500 mb-2">No unscheduled content</p>
                   <button
                     onClick={() => navigate('/dashboard')}
                     className="text-sm text-primary-600 hover:text-primary-700"
@@ -401,86 +487,112 @@ export default function Calendar() {
                 </div>
               ) : (
                 <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-                  {/* Group posts by content source */}
+                  {/* Group by content type first, then by source */}
                   {Object.entries(
-                    unscheduledPosts.reduce((groups, post) => {
-                      const sourceId = post.content_sources?.id || 'unknown'
-                      const sourceTitle = post.content_sources?.title || post.content_sources?.original_filename || 'Untitled'
-                      const key = `${sourceId}|${sourceTitle}`
-                      if (!groups[key]) {
-                        groups[key] = {
-                          sourceId,
-                          sourceTitle,
-                          posts: [],
-                        }
+                    unscheduledPosts.reduce((groups, item) => {
+                      const contentType = item.content_type
+                      if (!groups[contentType]) {
+                        groups[contentType] = []
                       }
-                      groups[key].posts.push(post)
+                      groups[contentType].push(item)
                       return groups
                     }, {})
-                  ).map(([key, group]) => (
-                    <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
-                      {/* Source Header */}
-                      <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-gray-700 truncate flex-1">
-                            {group.sourceTitle}
+                  ).map(([contentType, items]) => {
+                    const typeConfig = CONTENT_TYPE_CONFIG[contentType] || CONTENT_TYPE_CONFIG.linkedin_post
+                    // Group items by source within each content type
+                    const bySource = items.reduce((sources, item) => {
+                      const sourceId = item.content_sources?.id || 'unknown'
+                      const sourceTitle = item.content_sources?.title || item.content_sources?.original_filename || 'Untitled'
+                      const key = `${sourceId}|${sourceTitle}`
+                      if (!sources[key]) {
+                        sources[key] = { sourceId, sourceTitle, items: [] }
+                      }
+                      sources[key].items.push(item)
+                      return sources
+                    }, {})
+
+                    return (
+                      <div key={contentType} className="border border-gray-200 rounded-lg overflow-hidden">
+                        {/* Content Type Header */}
+                        <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-2" style={{ backgroundColor: typeConfig.color.bg }}>
+                          <span
+                            className="w-5 h-5 rounded text-xs font-bold flex items-center justify-center"
+                            style={{ backgroundColor: typeConfig.color.border, color: 'white' }}
+                          >
+                            {typeConfig.icon}
                           </span>
-                          <button
-                            onClick={() => navigate(`/content/${group.sourceId}`)}
-                            className="text-xs text-primary-600 hover:text-primary-700 ml-2 flex-shrink-0"
-                          >
-                            View all
-                          </button>
+                          <span className="text-sm font-medium" style={{ color: typeConfig.color.text }}>
+                            {typeConfig.label} ({items.length})
+                          </span>
                         </div>
-                        <span className="text-xs text-gray-500">
-                          {group.posts.length} post{group.posts.length !== 1 ? 's' : ''} ready
-                        </span>
-                      </div>
-                      {/* Posts in this group */}
-                      <div className="divide-y divide-gray-100">
-                        {group.posts.map((post, idx) => (
-                          <div
-                            key={post.id}
-                            className="p-3 hover:bg-gray-50 transition-colors"
-                          >
-                            <div className="flex items-center justify-between gap-2 mb-1.5">
-                              <span className="text-xs text-gray-400">Post {idx + 1}</span>
-                              {post.content_metadata?.linkedin_length && (
-                                <span className={`text-xs px-1.5 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[post.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
-                                  {LINKEDIN_LENGTH_LABELS[post.content_metadata.linkedin_length]?.name}
-                                </span>
-                              )}
+
+                        {/* Sources within this content type */}
+                        {Object.entries(bySource).map(([key, group]) => (
+                          <div key={key}>
+                            {/* Source Header */}
+                            <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-100 flex items-center justify-between">
+                              <span className="text-xs font-medium text-gray-600 truncate flex-1">
+                                {group.sourceTitle}
+                              </span>
+                              <button
+                                onClick={() => navigate(`/content/${group.sourceId}`)}
+                                className="text-xs text-primary-600 hover:text-primary-700 ml-2 flex-shrink-0"
+                              >
+                                View all
+                              </button>
                             </div>
-                            <p
-                              className="text-sm text-gray-700 line-clamp-2 mb-2 cursor-pointer hover:text-gray-900"
-                              onClick={() => setViewUnscheduledPost(post)}
-                            >
-                              {post.content_text.substring(0, 100)}...
-                            </p>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => setViewUnscheduledPost(post)}
-                                className="flex-1 text-xs text-gray-600 hover:text-gray-800 font-medium py-1 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
-                              >
-                                View / Edit
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setQuickSchedulePost(post)
-                                  const tomorrow = new Date()
-                                  tomorrow.setDate(tomorrow.getDate() + 1)
-                                  setQuickScheduleDate(tomorrow.toISOString().split('T')[0])
-                                }}
-                                className="flex-1 text-xs text-primary-600 hover:text-primary-700 font-medium py-1 border border-primary-200 rounded hover:bg-primary-50 transition-colors"
-                              >
-                                Schedule
-                              </button>
+                            {/* Items in this source */}
+                            <div className="divide-y divide-gray-100">
+                              {group.items.map((item, idx) => (
+                                <div
+                                  key={item.id}
+                                  className="p-3 hover:bg-gray-50 transition-colors"
+                                >
+                                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                                    <span className="text-xs text-gray-400">
+                                      {contentType === 'email_sequence' && item.content_metadata?.subject
+                                        ? item.content_metadata.subject.substring(0, 25) + (item.content_metadata.subject.length > 25 ? '...' : '')
+                                        : `#${idx + 1}`}
+                                    </span>
+                                    {item.content_metadata?.linkedin_length && (
+                                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
+                                        {LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.name}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p
+                                    className="text-sm text-gray-700 line-clamp-2 mb-2 cursor-pointer hover:text-gray-900"
+                                    onClick={() => setViewUnscheduledPost(item)}
+                                  >
+                                    {item.content_text.substring(0, 100)}...
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => setViewUnscheduledPost(item)}
+                                      className="flex-1 text-xs text-gray-600 hover:text-gray-800 font-medium py-1 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+                                    >
+                                      View / Edit
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setQuickSchedulePost(item)
+                                        const tomorrow = new Date()
+                                        tomorrow.setDate(tomorrow.getDate() + 1)
+                                        setQuickScheduleDate(tomorrow.toISOString().split('T')[0])
+                                      }}
+                                      className="flex-1 text-xs text-primary-600 hover:text-primary-700 font-medium py-1 border border-primary-200 rounded hover:bg-primary-50 transition-colors"
+                                    >
+                                      Schedule
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -496,7 +608,7 @@ export default function Calendar() {
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-            {unscheduledPosts.length} Ready to Schedule
+            {unscheduledPosts.length} Content Items Ready
           </button>
         )}
 
@@ -517,8 +629,22 @@ export default function Calendar() {
               {/* Modal Header */}
               <div className="p-4 border-b flex justify-between items-center">
                 <div className="flex items-center gap-2">
+                  {/* Content Type Badge */}
+                  {(() => {
+                    const contentType = selectedPost.contentType || selectedPost.generated_content?.content_type || PLATFORM_TO_CONTENT_TYPE[selectedPost.platform] || 'linkedin_post'
+                    const typeConfig = CONTENT_TYPE_CONFIG[contentType] || CONTENT_TYPE_CONFIG.linkedin_post
+                    return (
+                      <span
+                        className="w-6 h-6 rounded text-xs font-bold flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: typeConfig.color.border, color: 'white' }}
+                        title={typeConfig.label}
+                      >
+                        {typeConfig.icon}
+                      </span>
+                    )
+                  })()}
                   <h3 className="font-semibold text-gray-900">
-                    {isEditing ? 'Edit Post' : 'Scheduled Post'}
+                    {isEditing ? 'Edit Content' : 'Scheduled Content'}
                   </h3>
                   <span
                     className="text-xs px-2 py-0.5 rounded-full"
@@ -695,8 +821,23 @@ export default function Calendar() {
         {quickSchedulePost && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[60]">
             <div className="bg-white rounded-lg max-w-md w-full">
-              <div className="p-4 border-b">
-                <h3 className="font-semibold text-gray-900">Schedule Post</h3>
+              <div className="p-4 border-b flex items-center gap-2">
+                {/* Content Type Badge */}
+                {(() => {
+                  const typeConfig = CONTENT_TYPE_CONFIG[quickSchedulePost.content_type] || CONTENT_TYPE_CONFIG.linkedin_post
+                  return (
+                    <span
+                      className="w-6 h-6 rounded text-xs font-bold flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: typeConfig.color.border, color: 'white' }}
+                      title={typeConfig.label}
+                    >
+                      {typeConfig.icon}
+                    </span>
+                  )
+                })()}
+                <h3 className="font-semibold text-gray-900">
+                  Schedule {CONTENT_TYPE_CONFIG[quickSchedulePost.content_type]?.label || 'Content'}
+                </h3>
               </div>
               <div className="p-4 space-y-4">
                 <div>
@@ -752,15 +893,28 @@ export default function Calendar() {
           </div>
         )}
 
-        {/* View/Edit Unscheduled Post Modal */}
+        {/* View/Edit Unscheduled Content Modal */}
         {viewUnscheduledPost && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg max-w-lg w-full max-h-[90vh] flex flex-col">
               {/* Modal Header */}
               <div className="p-4 border-b flex justify-between items-center">
                 <div className="flex items-center gap-2">
+                  {/* Content Type Badge */}
+                  {(() => {
+                    const typeConfig = CONTENT_TYPE_CONFIG[viewUnscheduledPost.content_type] || CONTENT_TYPE_CONFIG.linkedin_post
+                    return (
+                      <span
+                        className="w-6 h-6 rounded text-xs font-bold flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: typeConfig.color.border, color: 'white' }}
+                        title={typeConfig.label}
+                      >
+                        {typeConfig.icon}
+                      </span>
+                    )
+                  })()}
                   <h3 className="font-semibold text-gray-900">
-                    {editingUnscheduled ? 'Edit Post' : 'Unscheduled Post'}
+                    {editingUnscheduled ? 'Edit Content' : (CONTENT_TYPE_CONFIG[viewUnscheduledPost.content_type]?.label || 'Content')}
                   </h3>
                   {viewUnscheduledPost.content_metadata?.linkedin_length && (
                     <span className={`text-xs px-2 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[viewUnscheduledPost.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>

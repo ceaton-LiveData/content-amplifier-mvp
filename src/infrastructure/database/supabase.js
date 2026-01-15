@@ -504,3 +504,41 @@ export async function getUnscheduledLinkedInPosts(accountId) {
 
   return unscheduledPosts
 }
+
+// Get all schedulable content (LinkedIn, Blog, Email) that hasn't been scheduled yet
+export async function getUnscheduledContent(accountId, contentTypes = ['linkedin_post', 'blog_post', 'email_sequence']) {
+  // First get all content_ids that are already scheduled
+  const { data: scheduledData, error: scheduledError } = await supabase
+    .from('scheduled_posts')
+    .select('content_id')
+    .eq('account_id', accountId)
+
+  if (scheduledError) throw scheduledError
+
+  const scheduledContentIds = scheduledData.map(s => s.content_id)
+
+  // Get all content of specified types for this account
+  const { data: contentData, error: contentError } = await supabase
+    .from('generated_content')
+    .select(`
+      *,
+      content_sources!inner (
+        id,
+        account_id,
+        title,
+        original_filename
+      )
+    `)
+    .eq('content_sources.account_id', accountId)
+    .in('content_type', contentTypes)
+    .order('created_at', { ascending: false })
+
+  if (contentError) throw contentError
+
+  // Filter out already scheduled posts
+  const unscheduledContent = contentData.filter(
+    item => !scheduledContentIds.includes(item.id)
+  )
+
+  return unscheduledContent
+}
