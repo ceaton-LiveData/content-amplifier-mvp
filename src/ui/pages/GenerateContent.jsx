@@ -8,7 +8,7 @@ import { generateWithCache } from '../../infrastructure/ai/claude'
 const CONTENT_TYPES = [
   { id: 'linkedin_post', name: 'LinkedIn Posts', count: 5, defaultChecked: true, hasLengthOption: true },
   { id: 'blog_post', name: 'Blog Post', count: 1, defaultChecked: true },
-  { id: 'email_sequence', name: 'Email Sequence', count: 5, defaultChecked: true },
+  { id: 'email_sequence', name: 'Email Sequence', count: 5, defaultChecked: true, hasLengthOption: true, lengthType: 'email' },
   { id: 'twitter_thread', name: 'Twitter Thread', count: 1, defaultChecked: false },
   { id: 'executive_summary', name: 'Executive Summary', count: 1, defaultChecked: false },
 ]
@@ -17,6 +17,11 @@ const LINKEDIN_LENGTH_OPTIONS = [
   { id: 'short', name: 'Short', chars: '150-300', hint: 'Quick insights, hot takes' },
   { id: 'medium', name: 'Medium', chars: '1,000-1,500', hint: 'Stories + value (recommended)' },
   { id: 'long', name: 'Long', chars: '1,500-2,500', hint: 'Deep frameworks, case studies' },
+]
+
+const EMAIL_LENGTH_OPTIONS = [
+  { id: 'short', name: 'Short', hint: '50-100 words per email - punchy, mobile-friendly' },
+  { id: 'medium', name: 'Medium', hint: '100-150 words per email - room for story (recommended)' },
 ]
 
 const TONE_OPTIONS = [
@@ -40,7 +45,8 @@ export default function GenerateContent() {
   const [existingTypes, setExistingTypes] = useState([])
   const [selectedTone, setSelectedTone] = useState(null)
   const [linkedinLength, setLinkedinLength] = useState('medium')
-  const [progress, setProgress] = useState({ current: 0, total: 0, currentType: '' })
+  const [emailLength, setEmailLength] = useState('medium')
+  const [progress, setProgress] = useState({ current: 0, total: 0, currentType: '', stage: '' })
 
   useEffect(() => {
     loadSource()
@@ -107,9 +113,15 @@ export default function GenerateContent() {
           current: i + 1,
           total: selectedTypes.length,
           currentType: typeInfo.name,
+          stage: '', // Clear stage when starting new type
         })
 
         try {
+          // Callback to update progress stage (for multi-step email generation)
+          const onStageChange = (stage) => {
+            setProgress(prev => ({ ...prev, stage }))
+          }
+
           const { content, usage } = await generateContentForType(
             typeId,
             typeInfo.count,
@@ -119,7 +131,8 @@ export default function GenerateContent() {
             account.target_audience,
             account.words_to_avoid,
             source.source_type || 'transcript',
-            { linkedinLength }
+            { linkedinLength, emailLength },
+            onStageChange
           )
 
           // Log API usage
@@ -212,6 +225,7 @@ export default function GenerateContent() {
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Generating your content...</h2>
             <p className="text-gray-600 mb-4">
               {progress.currentType && `Creating ${progress.currentType}...`}
+              {progress.stage && <span className="block text-sm text-gray-500 mt-1">{progress.stage}</span>}
             </p>
             <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
               <div
@@ -308,7 +322,7 @@ export default function GenerateContent() {
                       )}
                     </label>
                     {/* LinkedIn length selector */}
-                    {type.hasLengthOption && isSelected && (
+                    {type.hasLengthOption && type.id === 'linkedin_post' && isSelected && (
                       <div className="border border-t-0 border-primary-500 bg-primary-50 rounded-b-lg p-3">
                         <p className="text-xs font-medium text-gray-600 mb-2">Post length:</p>
                         <div className="flex gap-2">
@@ -332,6 +346,33 @@ export default function GenerateContent() {
                         </div>
                         <p className="text-xs text-gray-500 mt-1.5">
                           {LINKEDIN_LENGTH_OPTIONS.find(o => o.id === linkedinLength)?.hint}
+                        </p>
+                      </div>
+                    )}
+                    {/* Email length selector */}
+                    {type.hasLengthOption && type.lengthType === 'email' && isSelected && (
+                      <div className="border border-t-0 border-primary-500 bg-primary-50 rounded-b-lg p-3">
+                        <p className="text-xs font-medium text-gray-600 mb-2">Email length:</p>
+                        <div className="flex gap-2">
+                          {EMAIL_LENGTH_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setEmailLength(opt.id)}
+                              className={`
+                                flex-1 px-2 py-1.5 text-xs rounded border transition-colors
+                                ${emailLength === opt.id
+                                  ? 'border-primary-600 bg-primary-600 text-white'
+                                  : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                }
+                              `}
+                            >
+                              {opt.name}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1.5">
+                          {EMAIL_LENGTH_OPTIONS.find(o => o.id === emailLength)?.hint}
                         </p>
                       </div>
                     )}
@@ -405,8 +446,8 @@ const LINKEDIN_LENGTH_CONFIG = {
 }
 
 // Helper function to generate content for a specific type
-async function generateContentForType(typeId, count, sourceText, brandVoice, toneOverride, targetAudience, wordsToAvoid, sourceType = 'transcript', options = {}) {
-  const { linkedinLength = 'medium' } = options
+async function generateContentForType(typeId, count, sourceText, brandVoice, toneOverride, targetAudience, wordsToAvoid, sourceType = 'transcript', options = {}, onStageChange = null) {
+  const { linkedinLength = 'medium', emailLength = 'medium' } = options
 
   const toneInstruction = toneOverride === 'formal'
     ? 'Use a more formal, executive-level tone than usual.'
@@ -475,28 +516,41 @@ Format: Start with the title on the first line, then the content.`,
 
     email_sequence: `Create a ${count}-email nurture sequence based on the following ${sourceInfo.name}.
 
-EMAIL SEQUENCE STRUCTURE (follow this progression):
-- Email 1: THE BIG IDEA - Introduce the main concept/problem. Pure value, no selling. Hook them with insight.
-- Email 2: THE FRAMEWORK - Provide actionable steps or methodology. Build credibility through usefulness.
-- Email 3: CASE STUDY/PROOF - Show results with specific example. Social proof or before/after.
-- Email 4: OBJECTION HANDLER - Address common doubts or "yeah buts". Anticipate resistance.
-- Email 5: THE OFFER - Clear CTA with urgency. Connect the value from previous emails to action.
+SEQUENCE STRUCTURE:
+- Email 1: THE BIG IDEA - Hook with insight. Pure value, zero selling.
+- Email 2: THE FRAMEWORK - Actionable steps. Build credibility through usefulness.
+- Email 3: CASE STUDY - Specific example with results. Social proof.
+- Email 4: OBJECTION HANDLER - Address "yeah buts". Soft product mention OK.
+- Email 5: THE OFFER - Clear CTA with urgency. Connect value to action.
 
-EACH EMAIL MUST HAVE:
-- Subject line (30-50 chars, use: Question | Number | How-to | Curiosity gap)
-- Preview text (40-90 chars, complements subject - don't repeat it)
-- Body: 100-150 words, PLAIN TEXT only (no markdown)
-- Single clear CTA (one action per email)
-- P.S. line on emails 3-5 (creates scannable value)
+EMAIL FORMAT:
+- Subject: 30-50 chars. Use: Question | Number | How-to | Curiosity gap
+- Preview: 40-90 chars. Complement subject, don't repeat it.
+- Body: ${emailLength === 'short' ? '50-100 words' : '100-150 words'}, PLAIN TEXT only
+- 1-3 sentences per paragraph MAX. White space between paragraphs.
+- P.S. line on emails 3-5
 
-SUBJECT LINE FORMULAS:
-✓ "The [specific] mistake costing you [result]"
-✓ "[Number] [timeframe] to [desirable outcome]"
-✓ "Why [common belief] is wrong"
-✓ "How [person/company] achieved [specific result]"
-✗ AVOID: "Quick question", "Checking in", generic openers
+HOOK PATTERN (first line of every email):
+Start with a question OR a specific stat/claim. Then one concrete example.
+✓ "What if your biggest competitor is... your own inbox?"
+✓ "Last Tuesday, I watched a CMO delete 47 emails in 90 seconds."
+✗ NOT: "I hope this email finds you well" or "I wanted to reach out"
 
-VALUE-TO-ASK RATIO: Emails 1-3 = 100% value. Email 4 = value + soft mention. Email 5 = value + clear ask.
+SPECIFICITY REQUIREMENT:
+Replace vague with concrete. "3 spreadsheets and a Monday morning" not "inefficient processes."
+Use numbers, timeframes, specific scenarios from the source content.
+
+CTA EVOLUTION:
+- Emails 1-3: Engagement CTAs ("Reply with your biggest challenge", "Which resonates - A or B?")
+- Email 4: Soft conversion ("See how this works")
+- Email 5: Direct conversion ("Book your call", "Start your trial")
+
+STYLE - CRITICAL:
+✓ Conversational: Write like a smart friend, not a corporation
+✓ Show don't tell: Stories and examples over claims
+✓ Scannable: Short paragraphs, clear structure
+✗ NEVER USE: "leverage", "synergy", "ecosystem", "orchestrate", "circle back", "touch base"
+✗ NEVER USE: "I hope this finds you well", "Just checking in", "Quick question"
 
 ${toneInstruction}
 ${targetAudience ? `Target audience: ${targetAudience}` : ''}
@@ -572,11 +626,116 @@ Only flag claims that genuinely need verification - don't flag obvious statement
 
 Always maintain the brand voice while creating content. Be specific, use examples from the source content, and create content that provides real value to readers.`
 
+  // For email sequences, use 3-call adversarial flow for production quality
+  if (typeId === 'email_sequence') {
+    return await generateEmailsWithReview(prompts[typeId], systemPrompt, count, onStageChange)
+  }
+
   const { text, usage } = await generateWithCache(prompts[typeId], systemPrompt)
 
   // Parse the response based on content type
   const content = parseResponse(typeId, text, count)
   return { content, usage }
+}
+
+// Email critique prompt for adversarial review
+const EMAIL_CRITIQUE_PROMPT = `You are a ruthless email marketing editor. Review the email sequence below against these standards:
+
+HOOK CHECK (first line of each email):
+- Does it start with a question OR specific stat/claim?
+- Is there a concrete example within the first 2 sentences?
+- Flag any that start with "I hope", "I wanted to", "Just checking"
+
+SPECIFICITY CHECK:
+- Are there vague phrases that should be concrete? ("inefficient processes" → "3 spreadsheets and a Monday morning")
+- Are numbers and timeframes used where possible?
+
+TONE CHECK - Flag any of these:
+- Corporate buzzwords: leverage, synergy, ecosystem, orchestrate, circle back, touch base
+- Generic openers: "Quick question", "Checking in", "Hope this finds you well"
+- Walls of text (paragraphs over 3 sentences)
+
+CTA CHECK:
+- Emails 1-3: Should have ENGAGEMENT CTAs (reply, respond, answer a question)
+- Emails 4-5: Should have CONVERSION CTAs (book, schedule, start)
+- Flag mismatched CTAs
+
+STRUCTURE CHECK:
+- Is there white space between paragraphs?
+- Are paragraphs 1-3 sentences max?
+- Do emails 3-5 have P.S. lines?
+
+For each issue found, provide:
+1. Email number
+2. The problem
+3. Specific fix suggestion
+
+Be harsh. The goal is production-ready emails.
+
+EMAIL SEQUENCE TO REVIEW:
+`
+
+const EMAIL_REVISE_PROMPT = `Revise the email sequence based on the editor feedback below.
+
+IMPORTANT:
+- Apply ALL the feedback
+- Maintain the same overall structure and message
+- Keep the same FORMAT (---EMAIL N---, Subject:, Preview:, Send:)
+- Make the emails genuinely better, not just technically compliant
+
+ORIGINAL EMAILS:
+[ORIGINAL]
+
+EDITOR FEEDBACK:
+[FEEDBACK]
+
+Output the complete revised email sequence in the exact same format.`
+
+// 3-call adversarial flow for emails: generate → critique → revise
+async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChange) {
+  let totalUsage = {
+    model: 'claude-sonnet-4-20250514',
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    estimated_cost: 0,
+    request_time_ms: 0,
+  }
+
+  // Stage 1: Generate initial emails
+  if (onStageChange) onStageChange('Step 1/3: Drafting emails...')
+  const { text: initialEmails, usage: usage1 } = await generateWithCache(prompt, systemPrompt)
+  addUsage(totalUsage, usage1)
+
+  // Stage 2: Critique the emails
+  if (onStageChange) onStageChange('Step 2/3: Expert review...')
+  const critiquePrompt = EMAIL_CRITIQUE_PROMPT + initialEmails
+  const { text: critique, usage: usage2 } = await generateWithCache(critiquePrompt, 'You are an expert email marketing editor. Be specific and actionable in your feedback.')
+  addUsage(totalUsage, usage2)
+
+  // Stage 3: Revise based on critique
+  if (onStageChange) onStageChange('Step 3/3: Polishing final version...')
+  const revisePrompt = EMAIL_REVISE_PROMPT
+    .replace('[ORIGINAL]', initialEmails)
+    .replace('[FEEDBACK]', critique)
+  const { text: revisedEmails, usage: usage3 } = await generateWithCache(revisePrompt, systemPrompt)
+  addUsage(totalUsage, usage3)
+
+  // Parse the final revised emails
+  const content = parseResponse('email_sequence', revisedEmails, count)
+  return { content, usage: totalUsage }
+}
+
+// Helper to accumulate usage stats
+function addUsage(total, add) {
+  total.input_tokens += add.input_tokens || 0
+  total.output_tokens += add.output_tokens || 0
+  total.cache_creation_input_tokens += add.cache_creation_input_tokens || 0
+  total.cache_read_input_tokens += add.cache_read_input_tokens || 0
+  total.estimated_cost += add.estimated_cost || 0
+  total.request_time_ms += add.request_time_ms || 0
+  total.model = add.model || total.model
 }
 
 function parseResponse(typeId, response, expectedCount) {
