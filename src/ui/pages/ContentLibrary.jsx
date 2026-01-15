@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import { getContentSource, listContentBySource, createScheduledPost, updateGeneratedContent } from '../../infrastructure/database/supabase'
+import { getContentSource, listContentBySource, createScheduledPost, updateGeneratedContent, archiveContent } from '../../infrastructure/database/supabase'
 
 const CONTENT_TYPE_LABELS = {
   linkedin_post: 'LinkedIn Posts',
@@ -124,6 +124,27 @@ export default function ContentLibrary() {
     } catch (err) {
       console.error('Failed to save edits:', err)
       setError('Failed to save changes')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleArchive() {
+    if (!selectedContent) return
+
+    if (!confirm('Archive this content? It will be hidden from the library but can be viewed in Content History.')) {
+      return
+    }
+
+    setSaving(true)
+    try {
+      await archiveContent(selectedContent.id)
+      // Remove from local state
+      setContent(prev => prev.filter(item => item.id !== selectedContent.id))
+      setSelectedContent(null)
+    } catch (err) {
+      console.error('Failed to archive content:', err)
+      setError('Failed to archive content')
     } finally {
       setSaving(false)
     }
@@ -400,6 +421,16 @@ export default function ContentLibrary() {
                         Add to Calendar
                       </button>
                     )}
+                    <button
+                      onClick={handleArchive}
+                      disabled={saving}
+                      className="btn-secondary flex items-center text-gray-500 hover:text-gray-700"
+                    >
+                      <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                      </svg>
+                      Archive
+                    </button>
                   </>
                 )}
               </div>

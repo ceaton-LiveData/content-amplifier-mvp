@@ -506,18 +506,20 @@ export async function getUnscheduledLinkedInPosts(accountId) {
 }
 
 // Get all schedulable content (LinkedIn, Blog, Email) that hasn't been scheduled yet
+// Filters out archived content and content that's already published
 export async function getUnscheduledContent(accountId, contentTypes = ['linkedin_post', 'blog_post', 'email_sequence']) {
-  // First get all content_ids that are already scheduled
+  // First get all content_ids that are already scheduled (any status)
   const { data: scheduledData, error: scheduledError } = await supabase
     .from('scheduled_posts')
-    .select('content_id')
+    .select('content_id, status')
     .eq('account_id', accountId)
 
   if (scheduledError) throw scheduledError
 
+  // Content IDs that are scheduled (exclude from "Ready to Schedule")
   const scheduledContentIds = scheduledData.map(s => s.content_id)
 
-  // Get all content of specified types for this account
+  // Get all content of specified types for this account, excluding archived
   const { data: contentData, error: contentError } = await supabase
     .from('generated_content')
     .select(`
@@ -531,6 +533,7 @@ export async function getUnscheduledContent(accountId, contentTypes = ['linkedin
     `)
     .eq('content_sources.account_id', accountId)
     .in('content_type', contentTypes)
+    .eq('is_archived', false)
     .order('created_at', { ascending: false })
 
   if (contentError) throw contentError
@@ -541,4 +544,101 @@ export async function getUnscheduledContent(accountId, contentTypes = ['linkedin
   )
 
   return unscheduledContent
+}
+
+// Archive content (soft delete - hides from views but preserves data)
+export async function archiveContent(id) {
+  const { data, error } = await supabase
+    .from('generated_content')
+    .update({
+      is_archived: true,
+      archived_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+// Unarchive content
+export async function unarchiveContent(id) {
+  const { data, error } = await supabase
+    .from('generated_content')
+    .update({
+      is_archived: false,
+      archived_at: null,
+    })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+// Get all content for history view (published and archived)
+export async function getContentHistory(accountId, filters = {}) {
+  // Build the base query
+  let query = supabase
+    .from('generated_content')
+    .select(`
+      *,
+      content_sources!inner (
+        id,
+        account_id,
+        title,
+        original_filename
+      ),
+      scheduled_posts (
+        id,
+        status,
+        scheduled_date,
+        published_at
+      )
+    `)
+    .eq('content_sources.account_id', accountId)
+
+  // Apply filters
+  if (filters.contentType) {
+    query = query.eq('content_type', filters.contentType)
+  }
+
+  if (filters.archived === true) {
+    query = query.eq('is_archived', true)
+  } else if (filters.archived === false) {
+    query = query.eq('is_archived', false)
+  }
+
+  // Order by most recent
+  query = query.order('created_at', { ascending: false })
+
+  // Apply limit if specified
+  if (filters.limit) {
+    query = query.limit(filters.limit)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+
+  // Post-process to add status info
+  return data.map(item => {
+    const scheduledPost = item.scheduled_posts?.[0]
+    let status = 'unscheduled'
+    if (item.is_archived) {
+      status = 'archived'
+    } else if (scheduledPost?.status === 'published') {
+      status = 'published'
+    } else if (scheduledPost) {
+      status = scheduledPost.status
+    }
+    return {
+      ...item,
+      displayStatus: status,
+      publishedAt: scheduledPost?.published_at,
+      scheduledDate: scheduledPost?.scheduled_date,
+    }
+  })
 }

@@ -34,6 +34,12 @@ export default function Layout({ children }) {
                 >
                   Calendar
                 </Link>
+                <Link
+                  to="/history"
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                >
+                  History
+                </Link>
               </nav>
             </div>
 

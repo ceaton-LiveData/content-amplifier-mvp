@@ -13,6 +13,7 @@ import {
   createScheduledPost,
   getUnscheduledContent,
   updateGeneratedContent,
+  archiveContent,
 } from '../../infrastructure/database/supabase'
 
 const STATUS_COLORS = {
@@ -328,6 +329,27 @@ export default function Calendar() {
     } catch (err) {
       console.error('Failed to save edit:', err)
       setError('Failed to save changes')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleArchiveUnscheduled() {
+    if (!viewUnscheduledPost) return
+
+    if (!confirm('Archive this content? It will be hidden from the calendar but can be viewed in Content History.')) {
+      return
+    }
+
+    try {
+      setSaving(true)
+      await archiveContent(viewUnscheduledPost.id)
+      // Remove from local state
+      setUnscheduledPosts(prev => prev.filter(post => post.id !== viewUnscheduledPost.id))
+      setViewUnscheduledPost(null)
+    } catch (err) {
+      console.error('Failed to archive content:', err)
+      setError('Failed to archive content')
     } finally {
       setSaving(false)
     }
@@ -1089,6 +1111,16 @@ export default function Calendar() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
                       Add to Calendar
+                    </button>
+                    <button
+                      onClick={handleArchiveUnscheduled}
+                      disabled={saving}
+                      className="w-full text-sm text-gray-500 hover:text-gray-700 flex items-center justify-center gap-1.5 py-1"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                      </svg>
+                      Archive (hide from calendar)
                     </button>
                   </>
                 )}

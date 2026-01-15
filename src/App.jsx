@@ -9,6 +9,7 @@ import UploadTranscript from './ui/pages/UploadTranscript'
 import GenerateContent from './ui/pages/GenerateContent'
 import ContentLibrary from './ui/pages/ContentLibrary'
 import Calendar from './ui/pages/Calendar'
+import ContentHistory from './ui/pages/ContentHistory'
 import AdminDashboard from './ui/pages/AdminDashboard'
 
 function App() {
@@ -66,6 +67,14 @@ function App() {
             element={
               <AuthGuard>
                 <Calendar />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <AuthGuard>
+                <ContentHistory />
               </AuthGuard>
             }
           />

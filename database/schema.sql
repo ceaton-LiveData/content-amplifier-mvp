@@ -170,7 +170,11 @@ CREATE TABLE generated_content (
   user_edits TEXT, -- What the user changed (for learning)
   downloaded BOOLEAN DEFAULT false,
   viewed_at TIMESTAMP WITH TIME ZONE,
-  
+
+  -- Archive/status tracking
+  is_archived BOOLEAN DEFAULT false,
+  archived_at TIMESTAMP WITH TIME ZONE,
+
   -- Timestamps
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -181,6 +185,7 @@ CREATE INDEX idx_generated_content_account_id ON generated_content(account_id);
 CREATE INDEX idx_generated_content_source_id ON generated_content(content_source_id);
 CREATE INDEX idx_generated_content_type ON generated_content(content_type);
 CREATE INDEX idx_generated_content_created_at ON generated_content(created_at DESC);
+CREATE INDEX idx_generated_content_archived ON generated_content(is_archived);
 
 -- ============================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
