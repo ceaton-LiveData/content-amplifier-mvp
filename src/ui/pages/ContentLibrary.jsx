@@ -8,6 +8,7 @@ const CONTENT_TYPE_LABELS = {
   linkedin_post: 'LinkedIn Posts',
   blog_post: 'Blog Post',
   email_sequence: 'Email Sequence',
+  single_email: 'Single Email',
   twitter_thread: 'Twitter Thread',
   executive_summary: 'Executive Summary',
 }
@@ -496,7 +497,7 @@ export default function ContentLibrary() {
               {/* Modal Content */}
               <div className="p-4 overflow-y-auto flex-1">
                 {/* Email metadata (preview text, send day) */}
-                {selectedContent.content_type === 'email_sequence' && selectedContent.content_metadata && !isEditing && (
+                {(selectedContent.content_type === 'email_sequence' || selectedContent.content_type === 'single_email') && selectedContent.content_metadata && !isEditing && (
                   <div className="mb-4 p-3 bg-gray-50 rounded-lg space-y-2">
                     {selectedContent.content_metadata.preview_text && (
                       <div>
@@ -609,7 +610,7 @@ export default function ContentLibrary() {
                       </svg>
                       Download .md
                     </button>
-                    {['linkedin_post', 'blog_post', 'email_sequence'].includes(selectedContent.content_type) && (
+                    {['linkedin_post', 'blog_post', 'email_sequence', 'single_email'].includes(selectedContent.content_type) && (
                       <button
                         onClick={() => {
                           setShowScheduleModal(true)
@@ -695,6 +696,7 @@ export default function ContentLibrary() {
                       linkedin_post: 'linkedin',
                       blog_post: 'blog',
                       email_sequence: 'email',
+                      single_email: 'email',
                       twitter_thread: 'twitter',
                     }
                     const platform = platformMap[selectedContent.content_type] || 'other'

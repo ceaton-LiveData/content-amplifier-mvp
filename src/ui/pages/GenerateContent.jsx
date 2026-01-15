@@ -662,9 +662,9 @@ Only flag claims that genuinely need verification - don't flag obvious statement
 
 Always maintain the brand voice while creating content. Be specific, use examples from the source content, and create content that provides real value to readers.`
 
-  // For email sequences, optionally use 3-call adversarial flow for production quality
-  if (typeId === 'email_sequence' && emailQuality === 'production') {
-    return await generateEmailsWithReview(prompts[typeId], systemPrompt, count, onStageChange, brandVoice, emailLength)
+  // For emails, optionally use 3-call adversarial flow for production quality
+  if ((typeId === 'email_sequence' || typeId === 'single_email') && emailQuality === 'production') {
+    return await generateEmailsWithReview(prompts[typeId], systemPrompt, count, onStageChange, brandVoice, emailLength, typeId)
   }
 
   const { text, usage } = await generateWithCache(prompts[typeId], systemPrompt)
@@ -737,7 +737,7 @@ EDITOR NOTES:
 Output the complete email sequence in the exact same format.`
 
 // 3-call adversarial flow for emails: generate → critique → revise
-async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChange, brandVoice, emailLength) {
+async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChange, brandVoice, emailLength, typeId = 'email_sequence') {
   const targetLength = emailLength === 'short' ? '50-100' : '100-150'
 
   let totalUsage = {
@@ -770,7 +770,7 @@ async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChan
   addUsage(totalUsage, usage3)
 
   // Parse the final revised emails
-  const content = parseResponse('email_sequence', revisedEmails, count)
+  const content = parseResponse(typeId, revisedEmails, count)
   return { content, usage: totalUsage }
 }
 

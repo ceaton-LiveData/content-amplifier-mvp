@@ -293,6 +293,7 @@ export default function Calendar() {
       linkedin_post: 'linkedin',
       blog_post: 'blog',
       email_sequence: 'email',
+      single_email: 'email',
       twitter_thread: 'twitter',
       executive_summary: 'other',
     }
