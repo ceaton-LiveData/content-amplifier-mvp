@@ -373,3 +373,96 @@ export async function adminGetRecentApiUsage(limit = 100) {
   if (error) throw error
   return data || []
 }
+
+// ============================================================================
+// SCHEDULED POSTS (Calendar) operations
+// ============================================================================
+
+export async function createScheduledPost(postData) {
+  const { data, error } = await supabase
+    .from('scheduled_posts')
+    .insert(postData)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function updateScheduledPost(id, updates) {
+  const { data, error } = await supabase
+    .from('scheduled_posts')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function deleteScheduledPost(id) {
+  const { error } = await supabase
+    .from('scheduled_posts')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+export async function getScheduledPost(id) {
+  const { data, error } = await supabase
+    .from('scheduled_posts')
+    .select(`
+      *,
+      generated_content (
+        id,
+        content_type,
+        content_metadata
+      )
+    `)
+    .eq('id', id)
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+export async function listScheduledPosts(accountId, startDate, endDate) {
+  let query = supabase
+    .from('scheduled_posts')
+    .select(`
+      *,
+      generated_content (
+        id,
+        content_type,
+        content_metadata,
+        content_source_id
+      )
+    `)
+    .eq('account_id', accountId)
+    .order('scheduled_date', { ascending: true })
+
+  if (startDate) {
+    query = query.gte('scheduled_date', startDate)
+  }
+  if (endDate) {
+    query = query.lte('scheduled_date', endDate)
+  }
+
+  const { data, error } = await query
+
+  if (error) throw error
+  return data || []
+}
+
+export async function getScheduledPostsForContent(contentId) {
+  const { data, error } = await supabase
+    .from('scheduled_posts')
+    .select('*')
+    .eq('content_id', contentId)
+    .order('scheduled_date', { ascending: true })
+
+  if (error) throw error
+  return data || []
+}

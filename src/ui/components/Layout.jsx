@@ -16,10 +16,26 @@ export default function Layout({ children }) {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            {/* Logo */}
-            <Link to="/dashboard" className="flex items-center">
-              <span className="text-xl font-bold text-gray-900">Content Amplifier</span>
-            </Link>
+            {/* Logo + Nav */}
+            <div className="flex items-center space-x-8">
+              <Link to="/dashboard" className="flex items-center">
+                <span className="text-xl font-bold text-gray-900">Content Amplifier</span>
+              </Link>
+              <nav className="flex items-center space-x-4">
+                <Link
+                  to="/dashboard"
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  to="/calendar"
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                >
+                  Calendar
+                </Link>
+              </nav>
+            </div>
 
             {/* User Menu */}
             <div className="flex items-center space-x-4">

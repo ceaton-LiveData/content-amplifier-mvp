@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
-import { getContentSource, listContentBySource } from '../../infrastructure/database/supabase'
+import { useAuth } from '../hooks/useAuth'
+import { getContentSource, listContentBySource, createScheduledPost } from '../../infrastructure/database/supabase'
 
 const CONTENT_TYPE_LABELS = {
   linkedin_post: 'LinkedIn Posts',
@@ -11,9 +12,16 @@ const CONTENT_TYPE_LABELS = {
   executive_summary: 'Executive Summary',
 }
 
+const LINKEDIN_LENGTH_LABELS = {
+  short: { name: 'Short', color: 'bg-blue-100 text-blue-700' },
+  medium: { name: 'Medium', color: 'bg-green-100 text-green-700' },
+  long: { name: 'Long', color: 'bg-purple-100 text-purple-700' },
+}
+
 export default function ContentLibrary() {
   const { sourceId } = useParams()
   const navigate = useNavigate()
+  const { account } = useAuth()
 
   const [source, setSource] = useState(null)
   const [content, setContent] = useState([])
@@ -21,6 +29,10 @@ export default function ContentLibrary() {
   const [error, setError] = useState(null)
   const [selectedContent, setSelectedContent] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState('')
+  const [scheduleTime, setScheduleTime] = useState('')
+  const [scheduling, setScheduling] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -180,6 +192,11 @@ export default function ContentLibrary() {
                             : `#${index + 1}`
                           }
                         </span>
+                        {type === 'linkedin_post' && item.content_metadata?.linkedin_length && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
+                            {LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.name || item.content_metadata.linkedin_length}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-gray-700 line-clamp-3">
                         {item.content_text.substring(0, 150)}...
@@ -198,10 +215,15 @@ export default function ContentLibrary() {
             <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col">
               {/* Modal Header */}
               <div className="p-4 border-b flex justify-between items-center">
-                <h3 className="font-semibold text-gray-900">
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                   {CONTENT_TYPE_LABELS[selectedContent.content_type]}
+                  {selectedContent.content_type === 'linkedin_post' && selectedContent.content_metadata?.linkedin_length && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-normal ${LINKEDIN_LENGTH_LABELS[selectedContent.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
+                      {LINKEDIN_LENGTH_LABELS[selectedContent.content_metadata.linkedin_length]?.name}
+                    </span>
+                  )}
                   {selectedContent.content_metadata?.subject && (
-                    <span className="text-gray-500 font-normal ml-2">
+                    <span className="text-gray-500 font-normal">
                       - {selectedContent.content_metadata.subject}
                     </span>
                   )}
@@ -262,6 +284,100 @@ export default function ContentLibrary() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
                   Download .md
+                </button>
+                {selectedContent.content_type === 'linkedin_post' && (
+                  <button
+                    onClick={() => {
+                      setShowScheduleModal(true)
+                      // Default to tomorrow
+                      const tomorrow = new Date()
+                      tomorrow.setDate(tomorrow.getDate() + 1)
+                      setScheduleDate(tomorrow.toISOString().split('T')[0])
+                      setScheduleTime('09:00')
+                    }}
+                    className="btn-secondary flex items-center"
+                  >
+                    <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    Add to Calendar
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Schedule Modal */}
+        {showScheduleModal && selectedContent && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[60]">
+            <div className="bg-white rounded-lg max-w-md w-full">
+              <div className="p-4 border-b">
+                <h3 className="font-semibold text-gray-900">Add to Calendar</h3>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={scheduleDate}
+                    onChange={(e) => setScheduleDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Time (optional)</label>
+                  <input
+                    type="time"
+                    value={scheduleTime}
+                    onChange={(e) => setScheduleTime(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Leave empty to schedule for any time that day</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-sm text-gray-600 line-clamp-3">
+                    {selectedContent.content_text.substring(0, 150)}...
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 border-t flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowScheduleModal(false)}
+                  className="btn-secondary"
+                  disabled={scheduling}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!scheduleDate) return
+                    setScheduling(true)
+                    try {
+                      await createScheduledPost({
+                        account_id: account.id,
+                        content_id: selectedContent.id,
+                        platform: 'linkedin',
+                        scheduled_date: scheduleDate,
+                        scheduled_time: scheduleTime || null,
+                        post_text: selectedContent.content_text,
+                        status: 'scheduled',
+                      })
+                      setShowScheduleModal(false)
+                      setSelectedContent(null)
+                      navigate('/calendar')
+                    } catch (err) {
+                      console.error('Failed to schedule post:', err)
+                      setError('Failed to add to calendar')
+                    } finally {
+                      setScheduling(false)
+                    }
+                  }}
+                  className="btn-primary"
+                  disabled={scheduling || !scheduleDate}
+                >
+                  {scheduling ? 'Adding...' : 'Add to Calendar'}
                 </button>
               </div>
             </div>

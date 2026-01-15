@@ -145,13 +145,19 @@ export default function GenerateContent() {
 
           // Save each piece of content
           for (const piece of content) {
+            // Build metadata - include linkedin_length for LinkedIn posts
+            const metadata = { ...piece.metadata }
+            if (typeId === 'linkedin_post') {
+              metadata.linkedin_length = linkedinLength
+            }
+
             allContent.push({
               generation_id: generation.id,
               content_source_id: sourceId,
               account_id: account.id,
               content_type: typeId,
               content_text: piece.text,
-              content_metadata: piece.metadata || null,
+              content_metadata: Object.keys(metadata).length > 0 ? metadata : null,
               tokens_used: usage.input_tokens + usage.output_tokens,
               generation_cost: usage.estimated_cost,
             })

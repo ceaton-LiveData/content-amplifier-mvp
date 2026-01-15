@@ -604,10 +604,79 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================================
+-- SCHEDULED POSTS TABLE
+-- Content calendar and publishing queue
+-- ============================================================================
+
+CREATE TABLE scheduled_posts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  account_id UUID REFERENCES accounts(id) ON DELETE CASCADE NOT NULL,
+  content_id UUID REFERENCES generated_content(id) ON DELETE CASCADE NOT NULL,
+
+  -- Scheduling
+  platform TEXT NOT NULL DEFAULT 'linkedin' CHECK (platform IN ('linkedin', 'twitter', 'other')),
+  scheduled_date DATE NOT NULL,
+  scheduled_time TIME,
+  timezone TEXT DEFAULT 'America/New_York',
+
+  -- Content (can be edited from original)
+  post_text TEXT NOT NULL,
+
+  -- Status tracking
+  status TEXT DEFAULT 'scheduled' CHECK (status IN ('draft', 'scheduled', 'published', 'failed', 'cancelled')),
+
+  -- Publishing results (when we add LinkedIn integration)
+  platform_post_id TEXT,
+  platform_post_url TEXT,
+  published_at TIMESTAMP WITH TIME ZONE,
+  error_message TEXT,
+
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_scheduled_posts_account_id ON scheduled_posts(account_id);
+CREATE INDEX idx_scheduled_posts_scheduled_date ON scheduled_posts(scheduled_date);
+CREATE INDEX idx_scheduled_posts_status ON scheduled_posts(status);
+CREATE INDEX idx_scheduled_posts_content_id ON scheduled_posts(content_id);
+
+-- RLS for scheduled_posts
+ALTER TABLE scheduled_posts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own scheduled posts" ON scheduled_posts
+  FOR SELECT USING (
+    account_id IN (SELECT id FROM accounts WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Users can insert own scheduled posts" ON scheduled_posts
+  FOR INSERT WITH CHECK (
+    account_id IN (SELECT id FROM accounts WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Users can update own scheduled posts" ON scheduled_posts
+  FOR UPDATE USING (
+    account_id IN (SELECT id FROM accounts WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Users can delete own scheduled posts" ON scheduled_posts
+  FOR DELETE USING (
+    account_id IN (SELECT id FROM accounts WHERE user_id = auth.uid())
+  );
+
+-- Trigger for updated_at
+CREATE TRIGGER update_scheduled_posts_updated_at
+  BEFORE UPDATE ON scheduled_posts
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================
 -- COMMENTS FOR DOCUMENTATION
 -- ============================================================================
 
 COMMENT ON TABLE accounts IS 'User accounts with brand voice configuration and usage tracking';
+COMMENT ON TABLE scheduled_posts IS 'Content calendar with scheduled posts for publishing';
 COMMENT ON TABLE content_sources IS 'Uploaded transcripts and source content';
 COMMENT ON TABLE content_templates IS 'System and custom templates for content generation';
 COMMENT ON TABLE content_generations IS 'Individual content generation jobs';
