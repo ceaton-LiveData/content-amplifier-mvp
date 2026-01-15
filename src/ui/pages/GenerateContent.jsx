@@ -62,12 +62,8 @@ export default function GenerateContent() {
       ])
       setSource(sourceData)
       setExistingTypes(existingContentTypes)
-
-      // Pre-select types that haven't been generated yet
-      const notYetGenerated = CONTENT_TYPES
-        .filter(t => !existingContentTypes.includes(t.id))
-        .map(t => t.id)
-      setSelectedTypes(notYetGenerated.length > 0 ? notYetGenerated : [])
+      // Don't auto-select any types - let user choose
+      setSelectedTypes([])
     } catch (err) {
       setError('Failed to load transcript')
     } finally {
