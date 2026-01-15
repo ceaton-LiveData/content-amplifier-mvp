@@ -508,7 +508,7 @@ export async function getUnscheduledLinkedInPosts(accountId) {
 
 // Get all schedulable content (LinkedIn, Blog, Email) that hasn't been scheduled yet
 // Filters out archived content and content that's already published
-export async function getUnscheduledContent(accountId, contentTypes = ['linkedin_post', 'blog_post', 'email_sequence']) {
+export async function getUnscheduledContent(accountId, contentTypes = ['linkedin_post', 'blog_post', 'email_sequence', 'single_email']) {
   // First get all content_ids that are already scheduled (any status)
   const { data: scheduledData, error: scheduledError } = await supabase
     .from('scheduled_posts')
