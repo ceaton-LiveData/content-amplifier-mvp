@@ -9,6 +9,7 @@ const CONTENT_TYPES = [
   { id: 'linkedin_post', name: 'LinkedIn Posts', count: 5, defaultChecked: true, hasLengthOption: true },
   { id: 'blog_post', name: 'Blog Post', count: 1, defaultChecked: true },
   { id: 'email_sequence', name: 'Email Sequence', count: 5, defaultChecked: true, hasLengthOption: true, lengthType: 'email' },
+  { id: 'single_email', name: 'Single Email', count: 1, defaultChecked: false, hasLengthOption: true, lengthType: 'email' },
   { id: 'twitter_thread', name: 'Twitter Thread', count: 1, defaultChecked: false },
   { id: 'executive_summary', name: 'Executive Summary', count: 1, defaultChecked: false },
 ]
@@ -583,6 +584,29 @@ Preview: [preview text]
 ---EMAIL 2---
 ...and so on`,
 
+    single_email: `Write a single standalone email based on the following ${sourceInfo.name}. The email should:
+- Be ${emailLength === 'short' ? '50-100 words' : '100-150 words'}
+- Have a compelling subject line (30-50 characters)
+- Have a preview text line (40-90 characters, complements subject)
+- Focus on ONE clear message or insight ${sourceInfo.verb} the ${sourceInfo.name}
+- Have ONE clear call-to-action
+- Write in PLAIN TEXT only - no markdown formatting
+
+This is a standalone email, not part of a sequence. Get to the point quickly and make every word count.
+
+${toneInstruction}
+${targetAudience ? `Target audience: ${targetAudience}` : ''}
+${wordsToAvoid ? `Avoid these words/phrases: ${wordsToAvoid}` : ''}
+
+${sourceLabel}:
+${sourceText.substring(0, 6000)}
+
+FORMAT exactly as:
+Subject: [subject line]
+Preview: [preview text]
+
+[email body]`,
+
     twitter_thread: `Create a Twitter/X thread based on the following ${sourceInfo.name}. The thread should:
 - Have 8-12 tweets
 - Start with a hook tweet that grabs attention
@@ -794,6 +818,24 @@ function parseResponse(typeId, response, expectedCount) {
         metadata: { subject, preview_text, email_number: i + 1 }
       })
     }
+  } else if (typeId === 'single_email') {
+    // Parse single email with subject and preview
+    const lines = response.trim().split('\n')
+    const subjectLine = lines.find(l => l.toLowerCase().startsWith('subject:'))
+    const previewLine = lines.find(l => l.toLowerCase().startsWith('preview:'))
+
+    const subject = subjectLine ? subjectLine.replace(/^subject:\s*/i, '') : ''
+    const preview_text = previewLine ? previewLine.replace(/^preview:\s*/i, '') : ''
+
+    const body = lines.filter(l =>
+      !l.toLowerCase().startsWith('subject:') &&
+      !l.toLowerCase().startsWith('preview:')
+    ).join('\n').trim()
+
+    results.push({
+      text: body,
+      metadata: { subject, preview_text }
+    })
   } else if (typeId === 'twitter_thread') {
     const tweets = response.split('\n').filter(t => t.trim() && /^\d+[\/\.]/.test(t.trim()))
     for (const tweet of tweets) {

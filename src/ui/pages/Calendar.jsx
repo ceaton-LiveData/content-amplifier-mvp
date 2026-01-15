@@ -71,10 +71,16 @@ const CONTENT_TYPE_CONFIG = {
     badgeClass: 'bg-amber-500 text-white',
   },
   email_sequence: {
-    label: 'Email',
+    label: 'Sequence',
     icon: 'E',
     color: { bg: '#dcfce7', border: '#16a34a', text: '#166534' },
     badgeClass: 'bg-green-600 text-white',
+  },
+  single_email: {
+    label: 'Email',
+    icon: 'e',
+    color: { bg: '#d1fae5', border: '#059669', text: '#065f46' },
+    badgeClass: 'bg-emerald-600 text-white',
   },
   twitter_thread: {
     label: 'Twitter',
@@ -519,6 +525,10 @@ export default function Calendar() {
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-5 h-5 rounded text-xs font-bold flex items-center justify-center" style={{ backgroundColor: CONTENT_TYPE_CONFIG.email_sequence.color.bg, color: CONTENT_TYPE_CONFIG.email_sequence.color.border }}>E</span>
+              <span className="text-gray-600">Sequence</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-5 h-5 rounded text-xs font-bold flex items-center justify-center" style={{ backgroundColor: CONTENT_TYPE_CONFIG.single_email.color.bg, color: CONTENT_TYPE_CONFIG.single_email.color.border }}>e</span>
               <span className="text-gray-600">Email</span>
             </div>
           </div>
@@ -634,7 +644,8 @@ export default function Calendar() {
                 const tabs = [
                   { id: 'linkedin_post', label: 'LinkedIn', icon: 'in' },
                   { id: 'blog_post', label: 'Blog', icon: 'B' },
-                  { id: 'email_sequence', label: 'Email', icon: 'E' },
+                  { id: 'email_sequence', label: 'Sequence', icon: 'E' },
+                  { id: 'single_email', label: 'Email', icon: 'e' },
                 ]
 
                 return (
