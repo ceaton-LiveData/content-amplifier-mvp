@@ -562,6 +562,23 @@ export async function archiveContent(id) {
   return data
 }
 
+// Bulk archive multiple content items
+export async function bulkArchiveContent(ids) {
+  if (!ids || ids.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('generated_content')
+    .update({
+      is_archived: true,
+      archived_at: new Date().toISOString(),
+    })
+    .in('id', ids)
+    .select()
+
+  if (error) throw error
+  return data || []
+}
+
 // Unarchive content
 export async function unarchiveContent(id) {
   const { data, error } = await supabase

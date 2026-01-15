@@ -14,7 +14,33 @@ import {
   getUnscheduledContent,
   updateGeneratedContent,
   archiveContent,
+  bulkArchiveContent,
 } from '../../infrastructure/database/supabase'
+
+// Helper to check if content is "new" (created within last 24 hours)
+function isNewContent(createdAt) {
+  if (!createdAt) return false
+  const created = new Date(createdAt)
+  const now = new Date()
+  const hoursDiff = (now - created) / (1000 * 60 * 60)
+  return hoursDiff <= 24
+}
+
+// Helper to format relative time
+function formatRelativeTime(createdAt) {
+  if (!createdAt) return ''
+  const created = new Date(createdAt)
+  const now = new Date()
+  const diffMs = now - created
+  const diffMins = Math.floor(diffMs / (1000 * 60))
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  return created.toLocaleDateString()
+}
 
 const STATUS_COLORS = {
   draft: { bg: '#f3f4f6', border: '#9ca3af', text: '#374151' },
@@ -95,6 +121,9 @@ export default function Calendar() {
   const [editingUnscheduled, setEditingUnscheduled] = useState(false)
   const [editedUnscheduledText, setEditedUnscheduledText] = useState('')
   const [activeContentTab, setActiveContentTab] = useState('linkedin_post')
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkArchiving, setBulkArchiving] = useState(false)
 
   useEffect(() => {
     if (account?.id) {
@@ -355,6 +384,64 @@ export default function Calendar() {
     }
   }
 
+  function toggleSelectMode() {
+    setSelectMode(!selectMode)
+    setSelectedIds(new Set())
+  }
+
+  function toggleItemSelection(id, e) {
+    if (e && e.stopPropagation) e.stopPropagation()
+    setSelectedIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
+  function selectAllInTab() {
+    const tabItems = unscheduledPosts.filter(item => item.content_type === activeContentTab)
+    setSelectedIds(prev => {
+      const newSet = new Set(prev)
+      tabItems.forEach(item => newSet.add(item.id))
+      return newSet
+    })
+  }
+
+  function deselectAllInTab() {
+    const tabItems = unscheduledPosts.filter(item => item.content_type === activeContentTab)
+    setSelectedIds(prev => {
+      const newSet = new Set(prev)
+      tabItems.forEach(item => newSet.delete(item.id))
+      return newSet
+    })
+  }
+
+  async function handleBulkArchive() {
+    if (selectedIds.size === 0) return
+
+    if (!confirm(`Archive ${selectedIds.size} item${selectedIds.size > 1 ? 's' : ''}? They will be hidden from the calendar but can be viewed in Content History.`)) {
+      return
+    }
+
+    setBulkArchiving(true)
+    try {
+      await bulkArchiveContent(Array.from(selectedIds))
+      // Remove archived items from local state
+      setUnscheduledPosts(prev => prev.filter(item => !selectedIds.has(item.id)))
+      setSelectedIds(new Set())
+      setSelectMode(false)
+    } catch (err) {
+      console.error('Failed to bulk archive:', err)
+      setError('Failed to archive selected content')
+    } finally {
+      setBulkArchiving(false)
+    }
+  }
+
   if (loading) {
     return (
       <Layout>
@@ -488,16 +575,53 @@ export default function Calendar() {
               {/* Header */}
               <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
                 <h3 className="font-semibold text-gray-900">Ready to Schedule</h3>
-                <button
-                  onClick={() => setShowUnscheduled(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                  title="Hide panel"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                <div className="flex items-center gap-2">
+                  {unscheduledPosts.length > 0 && (
+                    <button
+                      onClick={toggleSelectMode}
+                      className={`text-xs px-2 py-1 rounded ${selectMode ? 'bg-gray-200 text-gray-700' : 'text-gray-500 hover:text-gray-700'}`}
+                      title={selectMode ? 'Cancel selection' : 'Select items'}
+                    >
+                      {selectMode ? 'Cancel' : 'Select'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowUnscheduled(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                    title="Hide panel"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               </div>
+
+              {/* Bulk Action Bar */}
+              {selectMode && selectedIds.size > 0 && (
+                <div className="px-3 py-2 bg-primary-50 border-b border-primary-200 flex items-center justify-between">
+                  <span className="text-xs font-medium text-primary-800">
+                    {selectedIds.size} selected
+                  </span>
+                  <button
+                    onClick={handleBulkArchive}
+                    disabled={bulkArchiving}
+                    className="text-xs text-red-600 hover:text-red-700 font-medium flex items-center gap-1"
+                  >
+                    {bulkArchiving ? (
+                      <>
+                        <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Archiving...
+                      </>
+                    ) : (
+                      <>Archive Selected</>
+                    )}
+                  </button>
+                </div>
+              )}
 
               {/* Content Type Tabs */}
               {(() => {
@@ -596,8 +720,23 @@ export default function Calendar() {
                       return sources
                     }, {})
 
+                    // Calculate selection state for this tab
+                    const tabSelectedCount = filteredItems.filter(item => selectedIds.has(item.id)).length
+                    const allTabSelected = tabSelectedCount === filteredItems.length
+
                     return (
                       <div className="space-y-3 max-h-[55vh] overflow-y-auto">
+                        {/* Select All / Deselect All for tab */}
+                        {selectMode && filteredItems.length > 0 && (
+                          <div className="flex justify-end px-1">
+                            <button
+                              onClick={() => allTabSelected ? deselectAllInTab() : selectAllInTab()}
+                              className="text-xs text-primary-600 hover:text-primary-700"
+                            >
+                              {allTabSelected ? 'Deselect All' : 'Select All'}
+                            </button>
+                          </div>
+                        )}
                         {Object.entries(bySource).map(([key, group]) => (
                           <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
                             {/* Source Header */}
@@ -614,29 +753,55 @@ export default function Calendar() {
                             </div>
                             {/* Items */}
                             <div className="divide-y divide-gray-100">
-                              {group.items.map((item, idx) => (
+                              {group.items.map((item, idx) => {
+                                const isNew = isNewContent(item.created_at)
+                                const isSelected = selectedIds.has(item.id)
+                                return (
                                 <div
                                   key={item.id}
-                                  className="p-3 hover:bg-gray-50 transition-colors"
+                                  className={`p-3 transition-colors ${isSelected ? 'bg-primary-50' : 'hover:bg-gray-50'}`}
+                                  onClick={selectMode ? () => toggleItemSelection(item.id) : undefined}
                                 >
                                   <div className="flex items-center justify-between gap-2 mb-1.5">
-                                    <span className="text-xs text-gray-400">
-                                      {activeContentTab === 'email_sequence' && item.content_metadata?.subject
-                                        ? item.content_metadata.subject.substring(0, 25) + (item.content_metadata.subject.length > 25 ? '...' : '')
-                                        : `#${idx + 1}`}
-                                    </span>
-                                    {item.content_metadata?.linkedin_length && (
-                                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
-                                        {LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.name}
+                                    <div className="flex items-center gap-2">
+                                      {selectMode && (
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={(e) => toggleItemSelection(item.id, e)}
+                                          className="h-3.5 w-3.5 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      )}
+                                      <span className="text-xs text-gray-400">
+                                        {activeContentTab === 'email_sequence' && item.content_metadata?.subject
+                                          ? item.content_metadata.subject.substring(0, 25) + (item.content_metadata.subject.length > 25 ? '...' : '')
+                                          : `#${idx + 1}`}
                                       </span>
-                                    )}
+                                      {isNew && (
+                                        <span className="text-xs px-1 py-0.5 rounded bg-green-100 text-green-700 font-medium">
+                                          New
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs text-gray-400">
+                                        {formatRelativeTime(item.created_at)}
+                                      </span>
+                                      {item.content_metadata?.linkedin_length && (
+                                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
+                                          {LINKEDIN_LENGTH_LABELS[item.content_metadata.linkedin_length]?.name}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                   <p
-                                    className="text-sm text-gray-700 line-clamp-2 mb-2 cursor-pointer hover:text-gray-900"
-                                    onClick={() => setViewUnscheduledPost(item)}
+                                    className={`text-sm text-gray-700 line-clamp-2 mb-2 ${!selectMode ? 'cursor-pointer hover:text-gray-900' : ''}`}
+                                    onClick={!selectMode ? () => setViewUnscheduledPost(item) : undefined}
                                   >
                                     {item.content_text.substring(0, 100)}...
                                   </p>
+                                  {!selectMode && (
                                   <div className="flex gap-2">
                                     <button
                                       onClick={() => setViewUnscheduledPost(item)}
@@ -656,8 +821,9 @@ export default function Calendar() {
                                       Schedule
                                     </button>
                                   </div>
+                                  )}
                                 </div>
-                              ))}
+                              )})}
                             </div>
                           </div>
                         ))}
