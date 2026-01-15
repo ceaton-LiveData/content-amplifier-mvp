@@ -130,6 +130,7 @@ export default function Calendar() {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkArchiving, setBulkArchiving] = useState(false)
+  const [tooltip, setTooltip] = useState({ show: false, text: '', x: 0, y: 0 })
 
   useEffect(() => {
     if (account?.id) {
@@ -173,6 +174,25 @@ export default function Calendar() {
     }
   }
 
+  // Helper to get preview text for tooltip
+  function getPreviewText(post, contentType) {
+    // For emails, use subject line
+    if ((contentType === 'email_sequence' || contentType === 'single_email') && post.generated_content?.content_metadata?.subject) {
+      return post.generated_content.content_metadata.subject
+    }
+    // For blog posts, use first line as title
+    if (contentType === 'blog_post') {
+      const firstLine = post.post_text.split('\n')[0]
+      return firstLine.substring(0, 60) + (firstLine.length > 60 ? '...' : '')
+    }
+    // For LinkedIn and others, use first sentence or 80 chars
+    const firstSentence = post.post_text.split(/[.!?]\s/)[0]
+    if (firstSentence.length <= 80) {
+      return firstSentence + (post.post_text.length > firstSentence.length ? '...' : '')
+    }
+    return post.post_text.substring(0, 80) + '...'
+  }
+
   // Convert posts to FullCalendar events
   const events = posts.map(post => {
     // Get content type from the generated_content or from platform mapping
@@ -189,19 +209,22 @@ export default function Calendar() {
       colors = STATUS_COLORS.draft
     }
 
+    // Create shorter title without time - just icon and truncated text
+    const shortTitle = `[${typeConfig.icon}] ${post.post_text.substring(0, 30)}${post.post_text.length > 30 ? '...' : ''}`
+
     return {
       id: post.id,
-      title: `[${typeConfig.icon}] ${post.post_text.substring(0, 40)}${post.post_text.length > 40 ? '...' : ''}`,
-      start: post.scheduled_time
-        ? `${post.scheduled_date}T${post.scheduled_time}`
-        : post.scheduled_date,
-      allDay: !post.scheduled_time,
+      title: shortTitle,
+      start: post.scheduled_date, // Always use date only for cleaner display
+      allDay: true, // Treat all as all-day for month view
       backgroundColor: colors.bg,
       borderColor: colors.border,
       textColor: colors.text,
       extendedProps: {
         ...post,
         contentType,
+        tooltipText: getPreviewText(post, contentType),
+        scheduledTime: post.scheduled_time,
       },
     }
   })
@@ -228,6 +251,72 @@ export default function Calendar() {
   function handleEventClick(info) {
     const post = info.event.extendedProps
     setSelectedPost({ ...post, id: info.event.id })
+  }
+
+  // Tooltip handlers for calendar events
+  function handleEventMouseEnter(info) {
+    const tooltipText = info.event.extendedProps.tooltipText
+    const time = info.event.extendedProps.scheduledTime
+    const rect = info.el.getBoundingClientRect()
+    setTooltip({
+      show: true,
+      text: tooltipText,
+      time: time,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 10,
+    })
+  }
+
+  function handleEventMouseLeave() {
+    setTooltip({ show: false, text: '', x: 0, y: 0 })
+  }
+
+  // Export calendar to iCal format
+  function exportToICal() {
+    const icalEvents = posts.map(post => {
+      const contentType = post.generated_content?.content_type || PLATFORM_TO_CONTENT_TYPE[post.platform] || 'linkedin_post'
+      const typeConfig = CONTENT_TYPE_CONFIG[contentType] || CONTENT_TYPE_CONFIG.linkedin_post
+
+      // Create date in iCal format
+      const date = post.scheduled_date.replace(/-/g, '')
+      const time = post.scheduled_time ? post.scheduled_time.replace(/:/g, '') + '00' : null
+      const dtStart = time ? `${date}T${time}` : date
+      const dtEnd = time ? `${date}T${time}` : date
+
+      // Escape special characters in text
+      const escapeICal = (text) => text.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n')
+
+      const summary = `[${typeConfig.label}] ${post.post_text.substring(0, 50)}${post.post_text.length > 50 ? '...' : ''}`
+      const description = post.post_text.substring(0, 500)
+
+      return `BEGIN:VEVENT
+UID:${post.id}@content-amplifier
+DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z
+DTSTART${time ? '' : ';VALUE=DATE'}:${dtStart}
+DTEND${time ? '' : ';VALUE=DATE'}:${dtEnd}
+SUMMARY:${escapeICal(summary)}
+DESCRIPTION:${escapeICal(description)}
+STATUS:${post.status === 'published' ? 'COMPLETED' : 'CONFIRMED'}
+END:VEVENT`
+    }).join('\n')
+
+    const icalContent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Content Amplifier//Content Calendar//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:Content Calendar
+${icalEvents}
+END:VCALENDAR`
+
+    // Download the file
+    const blob = new Blob([icalContent], { type: 'text/calendar;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'content-calendar.ics'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function handleDeletePost() {
@@ -496,6 +585,17 @@ export default function Calendar() {
               </button>
             </div>
             <button
+              onClick={exportToICal}
+              className="btn-secondary flex items-center gap-1.5"
+              title="Export to iCal/Google Calendar"
+              disabled={posts.length === 0}
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export
+            </button>
+            <button
               onClick={() => navigate('/dashboard')}
               className="btn-secondary"
             >
@@ -569,14 +669,12 @@ export default function Calendar() {
               droppable={true}
               eventDrop={handleEventDrop}
               eventClick={handleEventClick}
+              eventMouseEnter={handleEventMouseEnter}
+              eventMouseLeave={handleEventMouseLeave}
               height="auto"
               dayMaxEvents={3}
               eventDisplay="block"
-              eventTimeFormat={{
-                hour: 'numeric',
-                minute: '2-digit',
-                meridiem: 'short',
-              }}
+              displayEventTime={false}
             />
           </div>
 
@@ -1139,6 +1237,33 @@ export default function Calendar() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Hover Tooltip */}
+        {tooltip.show && (
+          <div
+            className="fixed z-[100] bg-gray-900 text-white text-sm px-3 py-2 rounded-lg shadow-lg max-w-xs pointer-events-none"
+            style={{
+              left: tooltip.x,
+              top: tooltip.y,
+              transform: 'translate(-50%, -100%)',
+            }}
+          >
+            <div className="font-medium">{tooltip.text}</div>
+            {tooltip.time && (
+              <div className="text-xs text-gray-300 mt-1">Scheduled: {tooltip.time}</div>
+            )}
+            <div
+              className="absolute left-1/2 bottom-0 transform -translate-x-1/2 translate-y-full"
+              style={{
+                width: 0,
+                height: 0,
+                borderLeft: '6px solid transparent',
+                borderRight: '6px solid transparent',
+                borderTop: '6px solid #111827',
+              }}
+            />
           </div>
         )}
 
