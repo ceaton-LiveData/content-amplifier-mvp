@@ -361,36 +361,74 @@ export default function Calendar() {
                   </button>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-                  {unscheduledPosts.map(post => (
-                    <div
-                      key={post.id}
-                      className="border border-gray-200 rounded-lg p-3 hover:border-primary-300 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <span className="text-xs text-gray-500 truncate flex-1">
-                          {post.content_sources?.title || post.content_sources?.original_filename || 'Content'}
-                        </span>
-                        {post.content_metadata?.linkedin_length && (
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${LINKEDIN_LENGTH_LABELS[post.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
-                            {LINKEDIN_LENGTH_LABELS[post.content_metadata.linkedin_length]?.name}
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                  {/* Group posts by content source */}
+                  {Object.entries(
+                    unscheduledPosts.reduce((groups, post) => {
+                      const sourceId = post.content_sources?.id || 'unknown'
+                      const sourceTitle = post.content_sources?.title || post.content_sources?.original_filename || 'Untitled'
+                      const key = `${sourceId}|${sourceTitle}`
+                      if (!groups[key]) {
+                        groups[key] = {
+                          sourceId,
+                          sourceTitle,
+                          posts: [],
+                        }
+                      }
+                      groups[key].posts.push(post)
+                      return groups
+                    }, {})
+                  ).map(([key, group]) => (
+                    <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
+                      {/* Source Header */}
+                      <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-gray-700 truncate flex-1">
+                            {group.sourceTitle}
                           </span>
-                        )}
+                          <button
+                            onClick={() => navigate(`/content/${group.sourceId}`)}
+                            className="text-xs text-primary-600 hover:text-primary-700 ml-2 flex-shrink-0"
+                          >
+                            View all
+                          </button>
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          {group.posts.length} post{group.posts.length !== 1 ? 's' : ''} ready
+                        </span>
                       </div>
-                      <p className="text-sm text-gray-700 line-clamp-3 mb-3">
-                        {post.content_text.substring(0, 120)}...
-                      </p>
-                      <button
-                        onClick={() => {
-                          setQuickSchedulePost(post)
-                          const tomorrow = new Date()
-                          tomorrow.setDate(tomorrow.getDate() + 1)
-                          setQuickScheduleDate(tomorrow.toISOString().split('T')[0])
-                        }}
-                        className="w-full text-sm text-primary-600 hover:text-primary-700 font-medium py-1.5 border border-primary-200 rounded hover:bg-primary-50 transition-colors"
-                      >
-                        Schedule This Post
-                      </button>
+                      {/* Posts in this group */}
+                      <div className="divide-y divide-gray-100">
+                        {group.posts.map((post, idx) => (
+                          <div
+                            key={post.id}
+                            className="p-3 hover:bg-gray-50 transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                              <span className="text-xs text-gray-400">Post {idx + 1}</span>
+                              {post.content_metadata?.linkedin_length && (
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[post.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
+                                  {LINKEDIN_LENGTH_LABELS[post.content_metadata.linkedin_length]?.name}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-700 line-clamp-2 mb-2">
+                              {post.content_text.substring(0, 100)}...
+                            </p>
+                            <button
+                              onClick={() => {
+                                setQuickSchedulePost(post)
+                                const tomorrow = new Date()
+                                tomorrow.setDate(tomorrow.getDate() + 1)
+                                setQuickScheduleDate(tomorrow.toISOString().split('T')[0])
+                              }}
+                              className="w-full text-xs text-primary-600 hover:text-primary-700 font-medium py-1 border border-primary-200 rounded hover:bg-primary-50 transition-colors"
+                            >
+                              Schedule
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -458,16 +496,41 @@ export default function Calendar() {
 
               {/* Modal Content */}
               <div className="p-4 overflow-y-auto flex-1">
-                <div className="mb-4">
-                  <p className="text-sm text-gray-500 mb-1">
-                    Scheduled for: {new Date(selectedPost.scheduled_date).toLocaleDateString('en-US', {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                    {selectedPost.scheduled_time && ` at ${selectedPost.scheduled_time}`}
-                  </p>
+                {/* Info Bar */}
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">
+                      Scheduled for: {new Date(selectedPost.scheduled_date).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                      {selectedPost.scheduled_time && ` at ${selectedPost.scheduled_time}`}
+                    </p>
+                    {selectedPost.generated_content?.content_source_id && (
+                      <button
+                        onClick={() => navigate(`/content/${selectedPost.generated_content.content_source_id}`)}
+                        className="text-xs text-primary-600 hover:text-primary-700 mt-1 flex items-center gap-1"
+                      >
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        View all content from this source
+                      </button>
+                    )}
+                  </div>
+                  {!isEditing && (
+                    <button
+                      onClick={startEditing}
+                      className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1.5"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                      Edit Post
+                    </button>
+                  )}
                 </div>
 
                 {isEditing ? (
@@ -486,7 +549,7 @@ export default function Calendar() {
                       <div className="flex gap-2">
                         <button
                           onClick={cancelEditing}
-                          className="text-sm text-gray-500 hover:text-gray-700"
+                          className="btn-secondary text-sm py-1.5 px-3"
                           disabled={saving}
                         >
                           Cancel
@@ -506,20 +569,9 @@ export default function Calendar() {
                     <div className="prose prose-sm max-w-none whitespace-pre-wrap bg-gray-50 p-4 rounded-lg">
                       {selectedPost.post_text}
                     </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <p className="text-xs text-gray-400">
-                        {selectedPost.post_text.length} characters
-                      </p>
-                      <button
-                        onClick={startEditing}
-                        className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
-                      >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                        Edit
-                      </button>
-                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      {selectedPost.post_text.length} characters
+                    </p>
                   </>
                 )}
               </div>
