@@ -166,6 +166,7 @@ export async function listContentBySource(sourceId) {
     .from('generated_content')
     .select('*')
     .eq('content_source_id', sourceId)
+    .eq('is_archived', false)
     .order('created_at', { ascending: false })
 
   if (error) throw error
