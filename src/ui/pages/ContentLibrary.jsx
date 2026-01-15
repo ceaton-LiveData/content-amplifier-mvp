@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import { getContentSource, listContentBySource, createScheduledPost } from '../../infrastructure/database/supabase'
+import { getContentSource, listContentBySource, createScheduledPost, updateGeneratedContent } from '../../infrastructure/database/supabase'
 
 const CONTENT_TYPE_LABELS = {
   linkedin_post: 'LinkedIn Posts',
@@ -33,6 +33,9 @@ export default function ContentLibrary() {
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleTime, setScheduleTime] = useState('')
   const [scheduling, setScheduling] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedText, setEditedText] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -86,6 +89,44 @@ export default function ContentLibrary() {
     a.download = `${filename}.md`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  function startEditing() {
+    setEditedText(selectedContent.content_text)
+    setIsEditing(true)
+  }
+
+  function cancelEditing() {
+    setIsEditing(false)
+    setEditedText('')
+  }
+
+  async function saveEdits() {
+    if (!editedText.trim() || editedText === selectedContent.content_text) {
+      cancelEditing()
+      return
+    }
+
+    setSaving(true)
+    try {
+      await updateGeneratedContent(selectedContent.id, {
+        content_text: editedText,
+      })
+      // Update local state
+      setContent(prev => prev.map(item =>
+        item.id === selectedContent.id
+          ? { ...item, content_text: editedText }
+          : item
+      ))
+      setSelectedContent(prev => ({ ...prev, content_text: editedText }))
+      setIsEditing(false)
+      setEditedText('')
+    } catch (err) {
+      console.error('Failed to save edits:', err)
+      setError('Failed to save changes')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading) {
@@ -229,7 +270,11 @@ export default function ContentLibrary() {
                   )}
                 </h3>
                 <button
-                  onClick={() => setSelectedContent(null)}
+                  onClick={() => {
+                    setSelectedContent(null)
+                    setIsEditing(false)
+                    setEditedText('')
+                  }}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -240,68 +285,122 @@ export default function ContentLibrary() {
 
               {/* Modal Content */}
               <div className="p-4 overflow-y-auto flex-1">
-                <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-                  {selectedContent.content_text}
-                </div>
+                {isEditing ? (
+                  <textarea
+                    value={editedText}
+                    onChange={(e) => setEditedText(e.target.value)}
+                    className="w-full h-full min-h-[300px] p-3 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 text-sm font-mono"
+                    placeholder="Edit your content..."
+                  />
+                ) : (
+                  <div className="prose prose-sm max-w-none whitespace-pre-wrap">
+                    {selectedContent.content_text}
+                  </div>
+                )}
               </div>
 
               {/* Modal Actions */}
               <div className="p-4 border-t flex flex-wrap gap-2">
-                <button
-                  onClick={() => copyToClipboard(selectedContent.content_text)}
-                  className="btn-primary flex items-center"
-                >
-                  {copied ? (
-                    <>
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={saveEdits}
+                      disabled={saving}
+                      className="btn-primary flex items-center"
+                    >
+                      {saving ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Save Changes
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={cancelEditing}
+                      disabled={saving}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={startEditing}
+                      className="btn-secondary flex items-center"
+                    >
                       <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                       </svg>
-                      Copied!
-                    </>
-                  ) : (
-                    <>
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => copyToClipboard(selectedContent.content_text)}
+                      className="btn-primary flex items-center"
+                    >
+                      {copied ? (
+                        <>
+                          <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                          </svg>
+                          Copy to Clipboard
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => downloadAsText(selectedContent.content_text, `${selectedContent.content_type}-${selectedContent.id.substring(0, 8)}`)}
+                      className="btn-secondary flex items-center"
+                    >
                       <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
-                      Copy to Clipboard
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={() => downloadAsText(selectedContent.content_text, `${selectedContent.content_type}-${selectedContent.id.substring(0, 8)}`)}
-                  className="btn-secondary flex items-center"
-                >
-                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Download .txt
-                </button>
-                <button
-                  onClick={() => downloadAsMarkdown(selectedContent.content_text, `${selectedContent.content_type}-${selectedContent.id.substring(0, 8)}`)}
-                  className="btn-secondary flex items-center"
-                >
-                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Download .md
-                </button>
-                {selectedContent.content_type === 'linkedin_post' && (
-                  <button
-                    onClick={() => {
-                      setShowScheduleModal(true)
-                      // Default to tomorrow
-                      const tomorrow = new Date()
-                      tomorrow.setDate(tomorrow.getDate() + 1)
-                      setScheduleDate(tomorrow.toISOString().split('T')[0])
-                      setScheduleTime('09:00')
-                    }}
-                    className="btn-secondary flex items-center"
-                  >
-                    <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Add to Calendar
-                  </button>
+                      Download .txt
+                    </button>
+                    <button
+                      onClick={() => downloadAsMarkdown(selectedContent.content_text, `${selectedContent.content_type}-${selectedContent.id.substring(0, 8)}`)}
+                      className="btn-secondary flex items-center"
+                    >
+                      <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Download .md
+                    </button>
+                    {selectedContent.content_type === 'linkedin_post' && (
+                      <button
+                        onClick={() => {
+                          setShowScheduleModal(true)
+                          // Default to tomorrow
+                          const tomorrow = new Date()
+                          tomorrow.setDate(tomorrow.getDate() + 1)
+                          setScheduleDate(tomorrow.toISOString().split('T')[0])
+                          setScheduleTime('09:00')
+                        }}
+                        className="btn-secondary flex items-center"
+                      >
+                        <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Add to Calendar
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

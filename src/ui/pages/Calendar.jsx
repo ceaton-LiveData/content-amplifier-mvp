@@ -12,6 +12,7 @@ import {
   deleteScheduledPost,
   createScheduledPost,
   getUnscheduledLinkedInPosts,
+  updateGeneratedContent,
 } from '../../infrastructure/database/supabase'
 
 const STATUS_COLORS = {
@@ -46,6 +47,9 @@ export default function Calendar() {
   const [quickSchedulePost, setQuickSchedulePost] = useState(null)
   const [quickScheduleDate, setQuickScheduleDate] = useState('')
   const [quickScheduleTime, setQuickScheduleTime] = useState('09:00')
+  const [viewUnscheduledPost, setViewUnscheduledPost] = useState(null)
+  const [editingUnscheduled, setEditingUnscheduled] = useState(false)
+  const [editedUnscheduledText, setEditedUnscheduledText] = useState('')
 
   useEffect(() => {
     if (account?.id) {
@@ -220,6 +224,41 @@ export default function Calendar() {
     const calendarApi = calendarRef.current?.getApi()
     if (calendarApi) {
       calendarApi.changeView(view)
+    }
+  }
+
+  function startEditingUnscheduled() {
+    setEditedUnscheduledText(viewUnscheduledPost.content_text)
+    setEditingUnscheduled(true)
+  }
+
+  function cancelEditingUnscheduled() {
+    setEditingUnscheduled(false)
+    setEditedUnscheduledText('')
+  }
+
+  async function handleSaveUnscheduledEdit() {
+    if (!viewUnscheduledPost || !editedUnscheduledText.trim()) return
+
+    try {
+      setSaving(true)
+      await updateGeneratedContent(viewUnscheduledPost.id, {
+        content_text: editedUnscheduledText,
+      })
+      // Update local state
+      setUnscheduledPosts(prev => prev.map(post =>
+        post.id === viewUnscheduledPost.id
+          ? { ...post, content_text: editedUnscheduledText }
+          : post
+      ))
+      setViewUnscheduledPost(prev => ({ ...prev, content_text: editedUnscheduledText }))
+      setEditingUnscheduled(false)
+      setEditedUnscheduledText('')
+    } catch (err) {
+      console.error('Failed to save edit:', err)
+      setError('Failed to save changes')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -412,20 +451,31 @@ export default function Calendar() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-sm text-gray-700 line-clamp-2 mb-2">
+                            <p
+                              className="text-sm text-gray-700 line-clamp-2 mb-2 cursor-pointer hover:text-gray-900"
+                              onClick={() => setViewUnscheduledPost(post)}
+                            >
                               {post.content_text.substring(0, 100)}...
                             </p>
-                            <button
-                              onClick={() => {
-                                setQuickSchedulePost(post)
-                                const tomorrow = new Date()
-                                tomorrow.setDate(tomorrow.getDate() + 1)
-                                setQuickScheduleDate(tomorrow.toISOString().split('T')[0])
-                              }}
-                              className="w-full text-xs text-primary-600 hover:text-primary-700 font-medium py-1 border border-primary-200 rounded hover:bg-primary-50 transition-colors"
-                            >
-                              Schedule
-                            </button>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setViewUnscheduledPost(post)}
+                                className="flex-1 text-xs text-gray-600 hover:text-gray-800 font-medium py-1 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+                              >
+                                View / Edit
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setQuickSchedulePost(post)
+                                  const tomorrow = new Date()
+                                  tomorrow.setDate(tomorrow.getDate() + 1)
+                                  setQuickScheduleDate(tomorrow.toISOString().split('T')[0])
+                                }}
+                                className="flex-1 text-xs text-primary-600 hover:text-primary-700 font-medium py-1 border border-primary-200 rounded hover:bg-primary-50 transition-colors"
+                              >
+                                Schedule
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -697,6 +747,148 @@ export default function Calendar() {
                 >
                   {saving ? 'Scheduling...' : 'Add to Calendar'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* View/Edit Unscheduled Post Modal */}
+        {viewUnscheduledPost && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg max-w-lg w-full max-h-[90vh] flex flex-col">
+              {/* Modal Header */}
+              <div className="p-4 border-b flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-gray-900">
+                    {editingUnscheduled ? 'Edit Post' : 'Unscheduled Post'}
+                  </h3>
+                  {viewUnscheduledPost.content_metadata?.linkedin_length && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${LINKEDIN_LENGTH_LABELS[viewUnscheduledPost.content_metadata.linkedin_length]?.color || 'bg-gray-100 text-gray-600'}`}>
+                      {LINKEDIN_LENGTH_LABELS[viewUnscheduledPost.content_metadata.linkedin_length]?.name}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setViewUnscheduledPost(null)
+                    setEditingUnscheduled(false)
+                    setEditedUnscheduledText('')
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-4 overflow-y-auto flex-1">
+                {/* Source Info */}
+                {viewUnscheduledPost.content_sources && (
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-sm text-gray-500">
+                      From: {viewUnscheduledPost.content_sources.title || viewUnscheduledPost.content_sources.original_filename}
+                    </p>
+                    <button
+                      onClick={() => navigate(`/content/${viewUnscheduledPost.content_sources.id}`)}
+                      className="text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                    >
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      View all from source
+                    </button>
+                  </div>
+                )}
+
+                {editingUnscheduled ? (
+                  <div>
+                    <textarea
+                      value={editedUnscheduledText}
+                      onChange={(e) => setEditedUnscheduledText(e.target.value)}
+                      className="w-full h-64 p-3 border border-gray-300 rounded-lg text-sm font-mono resize-none focus:ring-primary-500 focus:border-primary-500"
+                      placeholder="Edit your post..."
+                    />
+                    <div className="flex justify-between items-center mt-2">
+                      <p className={`text-xs ${editedUnscheduledText.length > 3000 ? 'text-red-500' : 'text-gray-400'}`}>
+                        {editedUnscheduledText.length} characters
+                        {editedUnscheduledText.length > 3000 && ' (LinkedIn limit: 3,000)'}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="prose prose-sm max-w-none whitespace-pre-wrap bg-gray-50 p-4 rounded-lg">
+                      {viewUnscheduledPost.content_text}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      {viewUnscheduledPost.content_text.length} characters
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Modal Actions */}
+              <div className="p-4 border-t space-y-3">
+                {editingUnscheduled ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={cancelEditingUnscheduled}
+                      className="btn-secondary flex-1"
+                      disabled={saving}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveUnscheduledEdit}
+                      className="btn-primary flex-1"
+                      disabled={saving || !editedUnscheduledText.trim()}
+                    >
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={startEditingUnscheduled}
+                        className="btn-secondary flex-1 flex items-center justify-center gap-2"
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Edit
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(viewUnscheduledPost.content_text)
+                        }}
+                        className="btn-secondary flex-1 flex items-center justify-center gap-2"
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                        </svg>
+                        Copy
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setViewUnscheduledPost(null)
+                        setQuickSchedulePost(viewUnscheduledPost)
+                        const tomorrow = new Date()
+                        tomorrow.setDate(tomorrow.getDate() + 1)
+                        setQuickScheduleDate(tomorrow.toISOString().split('T')[0])
+                      }}
+                      className="btn-primary w-full flex items-center justify-center gap-2"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Add to Calendar
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
