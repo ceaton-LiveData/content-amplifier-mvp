@@ -736,9 +736,63 @@ EDITOR NOTES:
 
 Output the complete email sequence in the exact same format.`
 
+// Single email critique prompt (adapted for one email)
+function getSingleEmailCritiquePrompt(brandVoice, targetLength) {
+  return `Review this single email with a LIGHT TOUCH.
+
+BRAND VOICE TO MATCH:
+${brandVoice || 'Professional and helpful'}
+
+TARGET LENGTH: ${targetLength} words
+
+CHECK ONLY:
+1. LENGTH - Is it within ${targetLength} words? If way over/under, note it.
+2. SUBJECT LINE - Is it compelling and under 50 chars?
+3. PREVIEW TEXT - Does it complement the subject (40-90 chars)?
+4. CLARITY - Is the ONE main message clear?
+5. CTA - Is there one clear call-to-action?
+6. BRAND VOICE - Does the tone match?
+
+DO NOT:
+- Suggest major restructuring
+- Add requirements not in the original
+- Nitpick working content
+
+If the email is good, just say "Good as-is"
+
+For any issues, briefly note:
+- The problem
+- A light-touch fix suggestion
+
+EMAIL TO REVIEW:
+`
+}
+
+const SINGLE_EMAIL_REVISE_PROMPT = `Polish this single email based on the editor notes below.
+
+IMPORTANT:
+- Only fix the specific issues mentioned
+- Keep the same voice, structure, and message
+- Don't add things that weren't requested
+- Keep the same FORMAT (Subject:, Preview:, then body)
+- If feedback says "Good as-is", return the email unchanged
+
+ORIGINAL EMAIL:
+[ORIGINAL]
+
+EDITOR NOTES:
+[FEEDBACK]
+
+Output the email in the exact same format:
+Subject: [subject line]
+Preview: [preview text]
+
+[email body]`
+
 // 3-call adversarial flow for emails: generate → critique → revise
 async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChange, brandVoice, emailLength, typeId = 'email_sequence') {
   const targetLength = emailLength === 'short' ? '50-100' : '100-150'
+  const isSingleEmail = typeId === 'single_email'
 
   let totalUsage = {
     model: 'claude-sonnet-4-20250514',
@@ -750,26 +804,28 @@ async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChan
     request_time_ms: 0,
   }
 
-  // Stage 1: Generate initial emails
-  if (onStageChange) onStageChange('Step 1/3: Drafting emails...')
+  // Stage 1: Generate initial email(s)
+  if (onStageChange) onStageChange(isSingleEmail ? 'Step 1/3: Drafting email...' : 'Step 1/3: Drafting emails...')
   const { text: initialEmails, usage: usage1 } = await generateWithCache(prompt, systemPrompt)
   addUsage(totalUsage, usage1)
 
-  // Stage 2: Critique the emails (now brand-voice aware)
+  // Stage 2: Critique the email(s) (brand-voice aware)
   if (onStageChange) onStageChange('Step 2/3: Reviewing...')
-  const critiquePrompt = getEmailCritiquePrompt(brandVoice, targetLength) + initialEmails
+  const critiquePrompt = isSingleEmail
+    ? getSingleEmailCritiquePrompt(brandVoice, targetLength) + initialEmails
+    : getEmailCritiquePrompt(brandVoice, targetLength) + initialEmails
   const { text: critique, usage: usage2 } = await generateWithCache(critiquePrompt, 'You are a helpful editor. Focus on polish, not rewriting.')
   addUsage(totalUsage, usage2)
 
   // Stage 3: Revise based on critique
   if (onStageChange) onStageChange('Step 3/3: Polishing...')
-  const revisePrompt = EMAIL_REVISE_PROMPT
+  const revisePrompt = (isSingleEmail ? SINGLE_EMAIL_REVISE_PROMPT : EMAIL_REVISE_PROMPT)
     .replace('[ORIGINAL]', initialEmails)
     .replace('[FEEDBACK]', critique)
   const { text: revisedEmails, usage: usage3 } = await generateWithCache(revisePrompt, systemPrompt)
   addUsage(totalUsage, usage3)
 
-  // Parse the final revised emails
+  // Parse the final revised email(s)
   const content = parseResponse(typeId, revisedEmails, count)
   return { content, usage: totalUsage }
 }
