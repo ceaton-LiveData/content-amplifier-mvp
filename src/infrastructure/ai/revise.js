@@ -1,5 +1,5 @@
 import { generateWithCache } from './claude'
-import { createContentRevision, getGeneratedContentById, logApiUsage } from '../database/supabase'
+import { createContentRevision, getGeneratedContentById } from '../database/supabase'
 
 // Revise prompt that polishes content while preserving voice and intent
 function getRevisePrompt(contentType, brandVoice, userGuidance = '') {
@@ -52,27 +52,14 @@ export async function reviseContent(contentId, accountId, brandVoice, userGuidan
   // Call Claude
   const { text: revisedText, usage } = await generateWithCache(
     prompt,
-    'You are a skilled content editor. Focus on polish, not rewriting.'
+    'You are a skilled content editor. Focus on polish, not rewriting.',
+    {
+      logContext: {
+        operation: 'content_revision',
+        contentType: original.content_type,
+      },
+    }
   )
-
-  // Log API usage
-  try {
-    await logApiUsage({
-      account_id: accountId,
-      model: usage.model || 'claude-sonnet-4-20250514',
-      operation: 'content_revision',
-      content_type: original.content_type,
-      input_tokens: usage.input_tokens || 0,
-      output_tokens: usage.output_tokens || 0,
-      cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
-      cache_read_input_tokens: usage.cache_read_input_tokens || 0,
-      estimated_cost: usage.estimated_cost || 0,
-      request_time_ms: usage.request_time_ms || 0,
-      status: 'success',
-    })
-  } catch (logErr) {
-    console.error('Failed to log API usage:', logErr)
-  }
 
   // Create the revision record
   const revision = await createContentRevision(original, revisedText.trim())

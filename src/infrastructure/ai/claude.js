@@ -1,44 +1,40 @@
 /**
  * Claude AI Provider
  *
- * NOTE: For MVP, we're calling Claude API from the client.
- * In production, move this to a Supabase Edge Function to protect the API key.
+ * All requests are proxied through the server to protect API keys and
+ * enforce rate limits.
  */
 
-const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY
+import { supabase } from '../database/supabase'
 
-// Claude Sonnet 4 pricing (per million tokens) - as of Jan 2025
-const PRICING = {
-  'claude-sonnet-4-20250514': {
-    input: 3.00,      // $3 per million input tokens
-    output: 15.00,    // $15 per million output tokens
-    cacheWrite: 3.75, // $3.75 per million tokens for cache writes
-    cacheRead: 0.30,  // $0.30 per million tokens for cache hits
-  },
-  // Add other models as needed
-  default: {
-    input: 3.00,
-    output: 15.00,
-    cacheWrite: 3.75,
-    cacheRead: 0.30,
+async function getAccessToken() {
+  const { data: { session }, error } = await supabase.auth.getSession()
+  if (error) throw error
+  if (!session?.access_token) {
+    throw new Error('Missing auth session')
   }
+  return session.access_token
 }
 
-/**
- * Calculate estimated cost from usage data
- * @param {object} usage - Usage object from Claude API response
- * @param {string} model - Model name
- * @returns {number} - Estimated cost in USD
- */
-function calculateCost(usage, model) {
-  const pricing = PRICING[model] || PRICING.default
+async function callAnthropic(payload, logContext = {}) {
+  const token = await getAccessToken()
 
-  const inputCost = (usage.input_tokens || 0) * pricing.input / 1_000_000
-  const outputCost = (usage.output_tokens || 0) * pricing.output / 1_000_000
-  const cacheWriteCost = (usage.cache_creation_input_tokens || 0) * pricing.cacheWrite / 1_000_000
-  const cacheReadCost = (usage.cache_read_input_tokens || 0) * pricing.cacheRead / 1_000_000
+  const response = await fetch('/api/anthropic', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ payload, logContext }),
+  })
 
-  return inputCost + outputCost + cacheWriteCost + cacheReadCost
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data?.error || 'Failed to generate content')
+  }
+
+  return data
 }
 
 /**
@@ -53,9 +49,8 @@ export async function generate(prompt, options = {}) {
     maxTokens = 2000,
     systemPrompt = '',
     temperature = 1,
+    logContext = {},
   } = options
-
-  const startTime = Date.now()
 
   const messages = [
     { role: 'user', content: prompt }
@@ -75,39 +70,10 @@ export async function generate(prompt, options = {}) {
     body.temperature = temperature
   }
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  })
-
-  const requestTimeMs = Date.now() - startTime
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.error?.message || 'Failed to generate content')
-  }
-
-  const data = await response.json()
-
-  // Extract usage data
-  const usage = {
-    model,
-    input_tokens: data.usage?.input_tokens || 0,
-    output_tokens: data.usage?.output_tokens || 0,
-    cache_creation_input_tokens: data.usage?.cache_creation_input_tokens || 0,
-    cache_read_input_tokens: data.usage?.cache_read_input_tokens || 0,
-    request_time_ms: requestTimeMs,
-    estimated_cost: calculateCost(data.usage || {}, model),
-  }
+  const { text, usage } = await callAnthropic(body, logContext)
 
   return {
-    text: data.content[0].text,
+    text,
     usage,
   }
 }
@@ -124,9 +90,8 @@ export async function generateWithCache(prompt, cachedSystemPrompt, options = {}
     model = 'claude-sonnet-4-20250514',
     maxTokens = 2000,
     temperature = 1,
+    logContext = {},
   } = options
-
-  const startTime = Date.now()
 
   const body = {
     model,
@@ -147,39 +112,10 @@ export async function generateWithCache(prompt, cachedSystemPrompt, options = {}
     body.temperature = temperature
   }
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  })
-
-  const requestTimeMs = Date.now() - startTime
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.error?.message || 'Failed to generate content')
-  }
-
-  const data = await response.json()
-
-  // Extract usage data (including cache metrics)
-  const usage = {
-    model,
-    input_tokens: data.usage?.input_tokens || 0,
-    output_tokens: data.usage?.output_tokens || 0,
-    cache_creation_input_tokens: data.usage?.cache_creation_input_tokens || 0,
-    cache_read_input_tokens: data.usage?.cache_read_input_tokens || 0,
-    request_time_ms: requestTimeMs,
-    estimated_cost: calculateCost(data.usage || {}, model),
-  }
+  const { text, usage } = await callAnthropic(body, logContext)
 
   return {
-    text: data.content[0].text,
+    text,
     usage,
   }
 }
@@ -216,7 +152,7 @@ Write the profile in second person ("You write in a...") so it can be used as in
 
   const systemPrompt = 'You are an expert content strategist and brand voice analyst. Your job is to analyze writing samples and create clear, actionable brand voice profiles that can be used to generate consistent content.'
 
-  return generate(prompt, { systemPrompt, maxTokens: 1500 })
+  return generate(prompt, { systemPrompt, maxTokens: 1500, logContext: { operation: 'brand_voice_analysis' } })
 }
 
 /**
@@ -251,7 +187,7 @@ Write the profile in second person ("You should...", "Always...", "Never...") so
 
   const systemPrompt = 'You are an expert at analyzing brand style guides and extracting clear, actionable writing rules. Your job is to transform style guide documents into practical instructions that can be followed when creating content.'
 
-  return generate(prompt, { systemPrompt, maxTokens: 2000 })
+  return generate(prompt, { systemPrompt, maxTokens: 2000, logContext: { operation: 'brand_voice_analysis' } })
 }
 
 /**
@@ -294,5 +230,5 @@ Write the profile in second person as instructions for generating future content
 
   const systemPrompt = 'You are an expert content strategist who specializes in creating comprehensive brand voice profiles. Your job is to combine explicit style guide rules with implicit patterns from writing examples to create detailed, actionable brand voice instructions.'
 
-  return generate(prompt, { systemPrompt, maxTokens: 2500 })
+  return generate(prompt, { systemPrompt, maxTokens: 2500, logContext: { operation: 'brand_voice_analysis' } })
 }

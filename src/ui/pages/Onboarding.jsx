@@ -5,10 +5,10 @@ import FileUpload from '../components/FileUpload'
 import { useAuth } from '../hooks/useAuth'
 import { extractText } from '../../core/processing/text-extractor'
 import { analyzeBrandVoice, analyzeStyleGuide } from '../../infrastructure/ai/claude'
-import { updateAccount, logApiUsage } from '../../infrastructure/database/supabase'
+import { updateAccount } from '../../infrastructure/database/supabase'
 
 export default function Onboarding() {
-  const { user, account, refreshAccount } = useAuth()
+  const { user, refreshAccount } = useAuth()
   const navigate = useNavigate()
 
   const [step, setStep] = useState(1) // 1: choose method, 2: input, 3: review
@@ -74,27 +74,6 @@ export default function Onboarding() {
         // Combine style guide rules with example analysis
         const contentExamples = examples.filter(ex => ex.trim())
         result = await analyzeBrandVoiceCombined(styleGuideText, contentExamples, targetAudience, wordsToAvoid)
-      }
-
-      // Log API usage if we have account info
-      if (result?.usage && account?.id) {
-        try {
-          await logApiUsage({
-            account_id: account.id,
-            model: result.usage.model,
-            operation: 'brand_voice_analysis',
-            content_type: null,
-            input_tokens: result.usage.input_tokens,
-            output_tokens: result.usage.output_tokens,
-            cache_creation_input_tokens: result.usage.cache_creation_input_tokens,
-            cache_read_input_tokens: result.usage.cache_read_input_tokens,
-            estimated_cost: result.usage.estimated_cost,
-            request_time_ms: result.usage.request_time_ms,
-            status: 'success',
-          })
-        } catch (logErr) {
-          console.error('Failed to log API usage:', logErr)
-        }
       }
 
       setBrandVoiceProfile(result.text)

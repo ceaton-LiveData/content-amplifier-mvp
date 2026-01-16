@@ -546,8 +546,8 @@ export async function getUnscheduledLinkedInPosts(accountId) {
 
   const scheduledContentIds = scheduledData.map(s => s.content_id)
 
-  // Get all LinkedIn posts for this account
-  const { data: contentData, error: contentError } = await supabase
+  // Get all LinkedIn posts for this account, excluding those already scheduled
+  let contentQuery = supabase
     .from('generated_content')
     .select(`
       *,
@@ -562,14 +562,15 @@ export async function getUnscheduledLinkedInPosts(accountId) {
     .eq('content_type', 'linkedin_post')
     .order('created_at', { ascending: false })
 
+  if (scheduledContentIds.length > 0) {
+    contentQuery = contentQuery.not('id', 'in', `(${scheduledContentIds.join(',')})`)
+  }
+
+  const { data: contentData, error: contentError } = await contentQuery
+
   if (contentError) throw contentError
 
-  // Filter out already scheduled posts
-  const unscheduledPosts = contentData.filter(
-    post => !scheduledContentIds.includes(post.id)
-  )
-
-  return unscheduledPosts
+  return contentData || []
 }
 
 // Get all schedulable content (LinkedIn, Blog, Email) that hasn't been scheduled yet
@@ -586,8 +587,8 @@ export async function getUnscheduledContent(accountId, contentTypes = ['linkedin
   // Content IDs that are scheduled (exclude from "Ready to Schedule")
   const scheduledContentIds = scheduledData.map(s => s.content_id)
 
-  // Get all content of specified types for this account, excluding archived
-  const { data: contentData, error: contentError } = await supabase
+  // Get all content of specified types for this account, excluding archived and scheduled
+  let contentQuery = supabase
     .from('generated_content')
     .select(`
       *,
@@ -603,14 +604,15 @@ export async function getUnscheduledContent(accountId, contentTypes = ['linkedin
     .eq('is_archived', false)
     .order('created_at', { ascending: false })
 
+  if (scheduledContentIds.length > 0) {
+    contentQuery = contentQuery.not('id', 'in', `(${scheduledContentIds.join(',')})`)
+  }
+
+  const { data: contentData, error: contentError } = await contentQuery
+
   if (contentError) throw contentError
 
-  // Filter out already scheduled posts
-  const unscheduledContent = contentData.filter(
-    item => !scheduledContentIds.includes(item.id)
-  )
-
-  return unscheduledContent
+  return contentData || []
 }
 
 // Archive content (soft delete - hides from views but preserves data)

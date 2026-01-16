@@ -262,7 +262,9 @@ export default function AdminDashboard() {
                     ) : (
                       topUsers.map((user) => (
                         <tr key={user.account_id}>
-                          <td className="px-4 py-2 text-sm text-gray-900">{user.user_email || 'Unknown'}</td>
+                          <td className="px-4 py-2 text-sm text-gray-900">
+                            {user.user_id ? user.user_id.slice(0, 8) + '...' : 'Unknown'}
+                          </td>
                           <td className="px-4 py-2 text-sm">
                             <span className={`px-2 py-1 rounded text-xs ${
                               user.plan_tier === 'free' ? 'bg-gray-100 text-gray-700' :
@@ -335,7 +337,9 @@ export default function AdminDashboard() {
                         <td className="px-4 py-2 text-sm text-gray-500">
                           {new Date(err.created_at).toLocaleString()}
                         </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">{err.user_email || 'Unknown'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-900">
+                          {err.user_id ? err.user_id.slice(0, 8) + '...' : 'Unknown'}
+                        </td>
                         <td className="px-4 py-2 text-sm text-gray-700">{err.operation}</td>
                         <td className="px-4 py-2 text-sm text-red-600">{err.error_message}</td>
                       </tr>

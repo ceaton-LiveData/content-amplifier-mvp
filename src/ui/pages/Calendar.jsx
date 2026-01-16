@@ -172,15 +172,6 @@ export default function Calendar() {
     }
   }
 
-  async function loadUnscheduledPosts() {
-    try {
-      const data = await getUnscheduledContent(account.id)
-      setUnscheduledPosts(data)
-    } catch (err) {
-      console.error('Failed to load unscheduled content:', err)
-    }
-  }
-
   // Helper to get preview text for tooltip
   function getPreviewText(post, contentType) {
     // For emails, use subject line

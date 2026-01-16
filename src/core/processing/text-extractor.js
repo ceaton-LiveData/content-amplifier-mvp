@@ -1,8 +1,9 @@
 import mammoth from 'mammoth'
 import * as pdfjsLib from 'pdfjs-dist'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min?url'
 
-// Set up PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+// Set up PDF.js worker (bundled locally)
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 /**
  * Extract text from various file types

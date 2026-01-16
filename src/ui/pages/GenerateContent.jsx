@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { useAuth } from '../hooks/useAuth'
-import { getContentSource, createGeneration, updateGeneration, saveGeneratedContent, getExistingContentTypes, logApiUsage } from '../../infrastructure/database/supabase'
+import { getContentSource, createGeneration, updateGeneration, saveGeneratedContent, getExistingContentTypes } from '../../infrastructure/database/supabase'
 import { generateWithCache } from '../../infrastructure/ai/claude'
 
 const CONTENT_TYPES = [
@@ -129,30 +129,18 @@ export default function GenerateContent() {
             account.target_audience,
             account.words_to_avoid,
             source.source_type || 'transcript',
-            { linkedinLength, emailLength, emailQuality },
+            {
+              linkedinLength,
+              emailLength,
+              emailQuality,
+              logContext: {
+                operation: 'content_generation',
+                contentType: typeId,
+                generationId: generation.id,
+              },
+            },
             onStageChange
           )
-
-          // Log API usage
-          try {
-            await logApiUsage({
-              account_id: account.id,
-              generation_id: generation.id,
-              model: usage.model,
-              operation: 'content_generation',
-              content_type: typeId,
-              input_tokens: usage.input_tokens,
-              output_tokens: usage.output_tokens,
-              cache_creation_input_tokens: usage.cache_creation_input_tokens,
-              cache_read_input_tokens: usage.cache_read_input_tokens,
-              estimated_cost: usage.estimated_cost,
-              request_time_ms: usage.request_time_ms,
-              status: 'success',
-            })
-          } catch (logErr) {
-            console.error('Failed to log API usage:', logErr)
-            // Don't fail content generation if logging fails
-          }
 
           // Save each piece of content
           for (const piece of content) {
@@ -483,7 +471,7 @@ const LINKEDIN_LENGTH_CONFIG = {
 
 // Helper function to generate content for a specific type
 async function generateContentForType(typeId, count, sourceText, brandVoice, toneOverride, targetAudience, wordsToAvoid, sourceType = 'transcript', options = {}, onStageChange = null) {
-  const { linkedinLength = 'medium', emailLength = 'medium', emailQuality = 'production' } = options
+  const { linkedinLength = 'medium', emailLength = 'medium', emailQuality = 'production', logContext = {} } = options
 
   const toneInstruction = toneOverride === 'formal'
     ? 'Use a more formal, executive-level tone than usual.'
@@ -664,10 +652,10 @@ Always maintain the brand voice while creating content. Be specific, use example
 
   // For emails, optionally use 3-call adversarial flow for production quality
   if ((typeId === 'email_sequence' || typeId === 'single_email') && emailQuality === 'production') {
-    return await generateEmailsWithReview(prompts[typeId], systemPrompt, count, onStageChange, brandVoice, emailLength, typeId)
+    return await generateEmailsWithReview(prompts[typeId], systemPrompt, count, onStageChange, brandVoice, emailLength, typeId, logContext)
   }
 
-  const { text, usage } = await generateWithCache(prompts[typeId], systemPrompt)
+  const { text, usage } = await generateWithCache(prompts[typeId], systemPrompt, { logContext })
 
   // Parse the response based on content type
   const content = parseResponse(typeId, text, count)
@@ -790,7 +778,7 @@ Preview: [preview text]
 [email body]`
 
 // 3-call adversarial flow for emails: generate → critique → revise
-async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChange, brandVoice, emailLength, typeId = 'email_sequence') {
+async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChange, brandVoice, emailLength, typeId = 'email_sequence', logContext = {}) {
   const targetLength = emailLength === 'short' ? '50-100' : '100-150'
   const isSingleEmail = typeId === 'single_email'
 
@@ -806,7 +794,7 @@ async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChan
 
   // Stage 1: Generate initial email(s)
   if (onStageChange) onStageChange(isSingleEmail ? 'Step 1/3: Drafting email...' : 'Step 1/3: Drafting emails...')
-  const { text: initialEmails, usage: usage1 } = await generateWithCache(prompt, systemPrompt)
+  const { text: initialEmails, usage: usage1 } = await generateWithCache(prompt, systemPrompt, { logContext })
   addUsage(totalUsage, usage1)
 
   // Stage 2: Critique the email(s) (brand-voice aware)
@@ -814,7 +802,7 @@ async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChan
   const critiquePrompt = isSingleEmail
     ? getSingleEmailCritiquePrompt(brandVoice, targetLength) + initialEmails
     : getEmailCritiquePrompt(brandVoice, targetLength) + initialEmails
-  const { text: critique, usage: usage2 } = await generateWithCache(critiquePrompt, 'You are a helpful editor. Focus on polish, not rewriting.')
+  const { text: critique, usage: usage2 } = await generateWithCache(critiquePrompt, 'You are a helpful editor. Focus on polish, not rewriting.', { logContext })
   addUsage(totalUsage, usage2)
 
   // Stage 3: Revise based on critique
@@ -822,7 +810,7 @@ async function generateEmailsWithReview(prompt, systemPrompt, count, onStageChan
   const revisePrompt = (isSingleEmail ? SINGLE_EMAIL_REVISE_PROMPT : EMAIL_REVISE_PROMPT)
     .replace('[ORIGINAL]', initialEmails)
     .replace('[FEEDBACK]', critique)
-  const { text: revisedEmails, usage: usage3 } = await generateWithCache(revisePrompt, systemPrompt)
+  const { text: revisedEmails, usage: usage3 } = await generateWithCache(revisePrompt, systemPrompt, { logContext })
   addUsage(totalUsage, usage3)
 
   // Parse the final revised email(s)
@@ -841,7 +829,7 @@ function addUsage(total, add) {
   total.model = add.model || total.model
 }
 
-function parseResponse(typeId, response, expectedCount) {
+function parseResponse(typeId, response) {
   const results = []
 
   if (typeId === 'linkedin_post') {
@@ -889,9 +877,9 @@ function parseResponse(typeId, response, expectedCount) {
       metadata: { subject, preview_text }
     })
   } else if (typeId === 'twitter_thread') {
-    const tweets = response.split('\n').filter(t => t.trim() && /^\d+[\/\.]/.test(t.trim()))
+    const tweets = response.split('\n').filter(t => t.trim() && /^\d+[/.]/.test(t.trim()))
     for (const tweet of tweets) {
-      results.push({ text: tweet.replace(/^\d+[\/\.]\s*/, '').trim() })
+      results.push({ text: tweet.replace(/^\d+[/.]\s*/, '').trim() })
     }
     // If parsing failed, treat whole response as one piece
     if (results.length === 0) {

@@ -494,6 +494,27 @@ $$ LANGUAGE plpgsql;
 -- For system-wide monitoring (requires admin role check in app)
 -- ============================================================================
 
+-- Admin users table (hardening)
+CREATE TABLE admin_users (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admins can view own admin record" ON admin_users
+  FOR SELECT USING (auth.uid() = user_id);
+
+-- Helper function to check admin access
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM admin_users WHERE user_id = auth.uid()
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- Get all API usage stats (for admin dashboard)
 CREATE OR REPLACE FUNCTION admin_get_api_stats()
 RETURNS TABLE(
@@ -506,6 +527,10 @@ RETURNS TABLE(
   cost_this_month NUMERIC
 ) AS $$
 BEGIN
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
+
   RETURN QUERY
   SELECT
     COALESCE(SUM(estimated_cost), 0) as total_cost,
@@ -527,6 +552,10 @@ RETURNS TABLE(
   calls BIGINT
 ) AS $$
 BEGIN
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
+
   RETURN QUERY
   SELECT
     DATE(created_at) as day,
@@ -549,6 +578,10 @@ RETURNS TABLE(
   total_content_pieces BIGINT
 ) AS $$
 BEGIN
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
+
   RETURN QUERY
   SELECT
     (SELECT COUNT(*) FROM accounts)::BIGINT as total_users,
@@ -563,23 +596,26 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION admin_get_top_users_by_cost(limit_count INTEGER DEFAULT 10)
 RETURNS TABLE(
   account_id UUID,
-  user_email TEXT,
+  user_id UUID,
   total_cost NUMERIC,
   total_calls BIGINT,
   plan_tier TEXT
 ) AS $$
 BEGIN
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
+
   RETURN QUERY
   SELECT
     a.id as account_id,
-    u.email as user_email,
+    a.user_id as user_id,
     COALESCE(SUM(l.estimated_cost), 0) as total_cost,
     COUNT(l.id)::BIGINT as total_calls,
     a.plan_tier
   FROM accounts a
   LEFT JOIN api_usage_logs l ON l.account_id = a.id
-  LEFT JOIN auth.users u ON u.id = a.user_id
-  GROUP BY a.id, u.email, a.plan_tier
+  GROUP BY a.id, a.user_id, a.plan_tier
   ORDER BY total_cost DESC
   LIMIT limit_count;
 END;
@@ -590,23 +626,26 @@ CREATE OR REPLACE FUNCTION admin_get_recent_errors(limit_count INTEGER DEFAULT 5
 RETURNS TABLE(
   id UUID,
   account_id UUID,
-  user_email TEXT,
+  user_id UUID,
   operation TEXT,
   error_message TEXT,
   created_at TIMESTAMPTZ
 ) AS $$
 BEGIN
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
+
   RETURN QUERY
   SELECT
     l.id,
     l.account_id,
-    u.email as user_email,
+    a.user_id as user_id,
     l.operation,
     l.error_message,
     l.created_at
   FROM api_usage_logs l
   LEFT JOIN accounts a ON a.id = l.account_id
-  LEFT JOIN auth.users u ON u.id = a.user_id
   WHERE l.status = 'error'
   ORDER BY l.created_at DESC
   LIMIT limit_count;
